@@ -47,20 +47,12 @@ static void YBStartAfterLaunch(void) {
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
+        YBSetTrace("install:UI");
         [YBUI install];
-        [[YBEngine shared] scheduleDailyTimer];
-
-        // —— iOS 现实：进程不会常驻，靠“打开元宝就补做”兜底 ——
-        // 若今天还没跑过、且用户开了 autoRunOnLaunch，则进入后自动补做
-        if ([YBConfig autoRunOnLaunch] && ![YBConfig hasRunToday]) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                if ([UIApplication sharedApplication].applicationState == UIApplicationStateActive) {
-                    YBLog(@"[补做] 今天还没完成，自动开始");
-                    [[YBEngine shared] runTasks:@[@"all"] count:-1 auto:YES];
-                }
-            });
-        }
+        // ============ 手动模式：只装界面，什么都不自动跑 ============
+        // 不排每日定时器、不在启动时补做任务；一切等你自己点「执行」。
+        YBSetTrace("install:done");
+        YBLogSync(@"[模式] 手动运行模式：进入元宝不会自动执行任务，请点悬浮球 → 执行");
     });
 }
 

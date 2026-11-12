@@ -84,7 +84,6 @@ static NSString *YBExtractText(UIView *v) {
 @property (nonatomic, weak) UILabel *timeLabel;
 @property (nonatomic, strong) UIWindow *overlay;
 - (NSString *)logText;
-- (void)tickLog;
 @end
 
 @implementation YBUI
@@ -200,129 +199,53 @@ static NSString *YBExtractText(UIView *v) {
     YBSetTrace("panel:1 取窗口");
     UIWindow *win = self.window;
     if (!win || win.bounds.size.width < 100) {
-        YBLogSync(@"[面板] 没有可用窗口，放弃打开（%@）", win ? @"尺寸异常" : @"nil");
+        YBLogSync(@"[面板] 没有可用窗口，放弃打开");
         return;
     }
-    CGFloat w = MIN(MAX(win.bounds.size.width - 24, 220), 380);
-    CGFloat h = MIN(MAX(win.bounds.size.height - 140, 260), 560);
-    CGRect f = CGRectMake((win.bounds.size.width - w)/2, (win.bounds.size.height - h)/2, w, h);
+    CGFloat w = MIN(MAX(win.bounds.size.width - 40, 240), 340);
+    CGFloat h = 212;
+    CGRect f = CGRectMake((win.bounds.size.width - w) / 2, (win.bounds.size.height - h) / 2, w, h);
 
     UIView *p = [[UIView alloc] initWithFrame:f];
     p.backgroundColor = [self panelBG];
-    p.layer.cornerRadius = 16;
+    p.layer.cornerRadius = 14;
     p.layer.masksToBounds = YES;
     self.panel = p;
     [win addSubview:p];
     YBLogSync(@"[面板] 1 容器 OK (%.0fx%.0f)", w, h);
 
-    // 只用 UILabel / UIButton / UIScrollView 这三种最基础的控件：
-    // 原来的 UITextView、UIStepper、block 版 NSTimer 在"注入到别人的进程"里最容易出事，全部换掉
-    UIScrollView *sv = [[UIScrollView alloc] initWithFrame:p.bounds];
-    sv.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-    [p addSubview:sv];
-    YBSetTrace("panel:2 滚动区");
-    YBLogSync(@"[面板] 2 滚动区 OK");
+    UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(14, 12, w - 28, 22)];
+    t.text = @"元宝签到（手动模式）";
+    t.textColor = UIColor.whiteColor;
+    t.font = [UIFont boldSystemFontOfSize:16];
+    [p addSubview:t];
+    YBLogSync(@"[面板] 2 标题 OK");
 
-    CGFloat pad = 12, iw = w - pad*2, y = 10;
+    UIButton *go = [self mkButton:@"▶ 执行全部任务" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
+    go.frame = CGRectMake(14, 42, w - 28, 38);
+    [p addSubview:go];
+    YBLogSync(@"[面板] 3 执行按钮 OK");
 
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, iw, 22)];
-    title.text = @"元宝签到 · 巨魔版";
-    title.textColor = UIColor.whiteColor;
-    title.font = [UIFont boldSystemFontOfSize:16];
-    [sv addSubview:title];
-    y += 26;
+    UIButton *cl = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
+    cl.frame = CGRectMake(14, 88, w - 28, 30);
+    [p addSubview:cl];
+    YBLogSync(@"[面板] 4 关闭按钮 OK");
 
-    UIButton *closeBtn = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
-    closeBtn.frame = CGRectMake(pad, y, 52, 26);
-    [sv addSubview:closeBtn];
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 126, w - 28, 76)];
+    lg.numberOfLines = 5;
+    lg.font = [UIFont systemFontOfSize:9];
+    lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
+    lg.text = [self logText];
+    [p addSubview:lg];
+    self.logLabel = lg;
 
-    UIButton *runAll = [self mkButton:@"▶ 立即执行全部任务" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
-    runAll.frame = CGRectMake(pad + 58, y, iw - 58, 26);
-    [sv addSubview:runAll];
-    y += 30;
-
-    UIButton *stop = [self mkButton:@"■ 停止当前任务" color:[UIColor colorWithRed:0.75 green:0.18 blue:0.18 alpha:1] action:@selector(stopRun)];
-    stop.frame = CGRectMake(pad, y, iw, 26);
-    [sv addSubview:stop];
-    y += 32;
-    YBSetTrace("panel:3 顶部按钮");
-    YBLogSync(@"[面板] 3 顶部按钮 OK");
-
-    UILabel *l1 = [self label:@"执行任务" y:y w:iw pad:pad];
-    [sv addSubview:l1];
-    y += 22;
-    self.taskBtns = [NSMutableDictionary dictionary];
-    NSArray *tasks = [YBConfig allTasks] ?: @[];
-    NSArray *enabled = [YBConfig enabledTasks] ?: @[];
-    CGFloat bw = (iw - 8) / 2;
-    for (NSUInteger i = 0; i < tasks.count; i++) {
-        NSString *t = tasks[i];
-        UIButton *b = [self mkButton:[YBConfig displayNameFor:t] color:[UIColor colorWithWhite:0.28 alpha:1] action:@selector(taskToggled:)];
-        b.tag = 100 + (NSInteger)i;
-        b.frame = CGRectMake(pad + (i % 2) * (bw + 8), y, bw, 28);
-        if ([enabled containsObject:t]) b.backgroundColor = [UIColor colorWithRed:0.10 green:0.62 blue:0.98 alpha:1];
-        [sv addSubview:b];
-        self.taskBtns[t] = b;
-        if (i % 2 == 1) y += 32;
-    }
-    if (tasks.count % 2 == 1) y += 32;
-    y += 4;
-    YBSetTrace("panel:4 任务开关");
-    YBLogSync(@"[面板] 4 任务开关 OK (%lu 个)", (unsigned long)tasks.count);
-
-    UILabel *l2 = [self label:@"自动执行时间" y:y w:iw pad:pad];
-    [sv addSubview:l2];
-    y += 22;
-    UILabel *tl = [[UILabel alloc] initWithFrame:CGRectMake(pad, y + 3, 66, 22)];
-    tl.textColor = UIColor.whiteColor;
-    tl.font = [UIFont boldSystemFontOfSize:15];
-    [sv addSubview:tl];
-    self.timeLabel = tl;
-    [self refreshTimeLabel];
-    // 时/分用按钮加减，不用 UIStepper
-    NSArray<NSString *> *caps = @[@"时 +", @"时 −", @"分 +", @"分 −"];
-    for (NSUInteger i = 0; i < caps.count; i++) {
-        SEL act = (i < 2) ? @selector(hourChanged:) : @selector(minChanged:);
-        UIButton *b = [self mkButton:caps[i] color:[UIColor colorWithWhite:0.30 alpha:1] action:act];
-        b.tag = (i == 0) ? 1 : (i == 1) ? -1 : (i == 2) ? 5 : -5;
-        b.frame = CGRectMake(pad + 72 + i * 52, y, 48, 28);
-        [sv addSubview:b];
-    }
-    y += 34;
-    YBSetTrace("panel:5 时间控件");
-    YBLogSync(@"[面板] 5 时间控件 OK");
-
-    UILabel *l3 = [self label:@"运行日志" y:y w:iw pad:pad];
-    [sv addSubview:l3];
-    y += 22;
-    UILabel *lv = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, iw, 120)];
-    lv.numberOfLines = 0;
-    lv.font = [UIFont systemFontOfSize:10];
-    lv.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
-    lv.backgroundColor = [UIColor colorWithWhite:0.04 alpha:1];
-    lv.text = [self logText];
-    [sv addSubview:lv];
-    self.logLabel = lv;
-    y += 126;
-    YBSetTrace("panel:6 日志区");
-    YBLogSync(@"[面板] 6 日志区 OK");
-
-    sv.contentSize = CGSizeMake(w, y + 14);
-
-    self.logTimer = [NSTimer timerWithTimeInterval:1.5 target:self selector:@selector(tickLog) userInfo:nil repeats:YES];
-    [[NSRunLoop mainRunLoop] addTimer:self.logTimer forMode:NSRunLoopCommonModes];
-    YBSetTrace("panel:7 定时器");
-    YBLogSync(@"[面板] 7 定时器 OK");
+    YBSetTrace("panel:done");
+    YBLogSync(@"[面板] 5 全部 OK（最小面板）");
 }
 
 - (NSString *)logText {
-    NSArray<NSString *> *t = YBLogTail(12);
+    NSArray<NSString *> *t = YBLogTail(5);
     return t ? [t componentsJoinedByString:@"\n"] : @"";
-}
-
-- (void)tickLog {
-    if (!self.logLabel) { [self.logTimer invalidate]; self.logTimer = nil; return; }
-    self.logLabel.text = [self logText];
 }
 
 - (UILabel *)label:(NSString *)t y:(CGFloat)y w:(CGFloat)w pad:(CGFloat)pad {
