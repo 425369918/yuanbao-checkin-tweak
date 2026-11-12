@@ -19,7 +19,9 @@ MIN_IOS="${MIN_IOS:-14.0}"
 ARCHS="${ARCHS:-arm64}"
 THEOS="${THEOS:-$HOME/theos}"
 
-# ---------- 找 SDK ----------
+# ---------- 找 SDK（找不到就自动下载到 ./sdk）----------
+SDK_VER="${SDK_VER:-16.5}"
+
 find_sdk() {
   if [ -n "${SDK:-}" ] && [ -d "${SDK}" ]; then echo "$SDK"; return; fi
   local d
@@ -27,9 +29,25 @@ find_sdk() {
     [ -d "$d" ] && { echo "$d"; return; }
   done
 }
+
+fetch_sdk() {
+  local url="https://github.com/theos/sdks/releases/latest/download/iPhoneOS${SDK_VER}.sdk.tar.xz"
+  echo "[build] 未找到 SDK，尝试下载 iPhoneOS${SDK_VER}.sdk ..." >&2
+  mkdir -p ./sdk
+  if curl -fL --retry 3 --connect-timeout 30 -o /tmp/sdk.tar.xz "$url"; then
+    tar -xf /tmp/sdk.tar.xz -C ./sdk && echo "[build] SDK 已解压到 ./sdk" >&2
+  else
+    echo "[build] 下载 SDK 失败（$url）" >&2
+  fi
+}
+
 SDK="$(find_sdk || true)"
 if [ -z "${SDK:-}" ] || [ ! -d "$SDK" ]; then
-  echo "找不到 iOS SDK。设置 SDK=/path/to/iPhoneOSxx.sdk，或放到 $THEOS/sdks/ 或 ./sdk/" >&2
+  fetch_sdk
+  SDK="$(find_sdk || true)"
+fi
+if [ -z "${SDK:-}" ] || [ ! -d "$SDK" ]; then
+  echo "找不到 iOS SDK。可手动设置 SDK=/path/to/iPhoneOSxx.sdk，或放到 $THEOS/sdks/ 或 ./sdk/" >&2
   exit 1
 fi
 echo "[build] SDK   = $SDK"
