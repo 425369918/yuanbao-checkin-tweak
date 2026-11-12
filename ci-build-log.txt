@@ -14,10 +14,11 @@
 ++ echo /home/runner/work/_temp/theos/sdks/iPhoneOS16.5.sdk
 + export SDK=/home/runner/work/_temp/theos/sdks/iPhoneOS16.5.sdk
 + SDK=/home/runner/work/_temp/theos/sdks/iPhoneOS16.5.sdk
-+ export FUSE_LD= MIN_IOS=14.0 ARCHS=arm64
++ export FUSE_LD= MIN_IOS=14.0 ARCHS=arm64 SIGN=1
 + FUSE_LD=
 + MIN_IOS=14.0
 + ARCHS=arm64
++ SIGN=1
 + ls -l /home/runner/work/_temp/theos/toolchain/linux/iphone/bin/clang
 lrwxrwxrwx 1 runner runner 8 Sep  6  2023 /home/runner/work/_temp/theos/toolchain/linux/iphone/bin/clang -> clang-11
 + ls /home/runner/work/_temp/theos/toolchain/linux/iphone/bin
@@ -91,9 +92,10 @@ Target: x86_64-unknown-linux-gnu
 + /home/runner/work/_temp/theos/toolchain/linux/iphone/bin/clang -dynamiclib -arch arm64 -target arm64-apple-ios14.0 -isysroot /home/runner/work/_temp/theos/sdks/iPhoneOS16.5.sdk -miphoneos-version-min=14.0 -fobjc-arc -O2 -Wno-deprecated-declarations -Wno-unused-variable -I. -framework Foundation -framework UIKit -framework Vision -framework CoreGraphics -framework CoreImage -framework QuartzCore Tweak.m YBEngine.m YBTouch.m YBScreen.m YBConfig.m YBStep.m YBLog.m YBUI.m -Wl,-undefined,dynamic_lookup -Wl,-install_name,@executable_path/Frameworks/YuanbaoCheckin.dylib -o build/YuanbaoCheckin.dylib
 ld: warning: -undefined dynamic_lookup is deprecated on iOS
 + set +x
+[build] 已 ldid 伪签名
 [build] 架构检查：
 Non-fat file: build/YuanbaoCheckin.dylib is architecture: arm64
--rwxr-xr-x 1 runner runner 150K Nov 12 09:14 build/YuanbaoCheckin.dylib
+-rwxr-xr-x 1 runner runner 152K Nov 12 09:16 build/YuanbaoCheckin.dylib
 [build] 完成 -> build/YuanbaoCheckin.dylib
 + file build/YuanbaoCheckin.dylib
 build/YuanbaoCheckin.dylib: Mach-O 64-bit arm64 dynamically linked shared library, flags:<NOUNDEFS|DYLDLINK|TWOLEVEL|NO_REEXPORTED_DYLIBS>

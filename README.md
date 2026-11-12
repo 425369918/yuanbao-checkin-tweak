@@ -38,11 +38,28 @@ export THEOS=~/theos
 # 产物：build/YuanbaoCheckin.dylib
 ```
 
-### 方式 B：没有 mac / 没有 theos（推荐）
+### 方式 B：没有 mac（推荐，已跑通）
 
-把本目录推到 GitHub，仓库自带的 Actions 会自动编好：
-`.github/workflows/build.yml` → 跑完后在 **Actions → Artifacts** 下载
-`YuanbaoCheckin-dylib`。
+推到 GitHub 即可，`.github/workflows/build.yml` 会在 **ubuntu-latest** 上编译：
+下载 theos 的 Linux 版 iOS 工具链（clang + ld64 链接器）和 iPhoneOS16.5 SDK，
+直接交叉编译出 arm64 的 Mach-O dylib，**不占 macOS runner 额度、不用 Docker、不用 Xcode**。
+
+跑完后两种取法：
+
+1. **Actions → 最近一次 build → Artifacts → `YuanbaoCheckin-dylib`**；
+2. 或者直接拉自动发布的分支：`git fetch origin ci-output`，
+   里面固定有 `YuanbaoCheckin.dylib`（以及这一次的完整 `log.txt`）。
+
+> 说明：这个仓库账号的 macOS runner 会长时间排队不动，所以 CI 不再用 `macos-13`；
+> 需要 macOS 时才在本地用 `./build.sh`（方式 A）。
+
+### 方式 C：Windows / Linux 本地交叉编译（可选）
+
+装 LLVM（要带 `ld64.lld`）+ 一份 iPhoneOS SDK，然后：
+
+```bash
+SDK=/path/to/iPhoneOS16.5.sdk CLANG=/path/to/clang ./build.sh
+```
 
 ---
 
