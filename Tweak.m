@@ -69,6 +69,8 @@ static void YBTweakInit(void) {
     @autoreleasepool {
         YBLogBootstrap();
         YBLogEnableCrashHandler();   // 未捕获异常也写进日志，闪退能留痕
+        YBLogInstallSignalHandlers(); // 野指针这类硬崩溃也留一行（含最后进行到哪步）
+        YBSetTrace("constructor");
 
 #ifdef YB_SAFE
         // ===== 安全版：只验证「注入 → 加载 → 写日志」，完全不碰 UI / 任务 =====

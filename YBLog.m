@@ -1,10 +1,17 @@
 #import "YBLog.h"
 #import <UIKit/UIKit.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdio.h>
 
 static NSMutableArray<NSString *> *gRing = nil;
 static NSString *gPath = nil;
 static dispatch_queue_t gQ;
 static NSDateFormatter *gFmt;
+static char gPathC[512];              // 给信号处理用的纯 C 路径
+static char gTrace[160] = "boot";     // 当前进行到哪一步（信号处理时一起写出去）
 
 void YBLogBootstrap(void) {
     if (gQ) return;
@@ -25,6 +32,11 @@ void YBLogBootstrap(void) {
         if ([[NSFileManager defaultManager] isWritableFileAtPath:dir]) { gPath = p; break; }
     }
     YBLog(@"日志文件: %@", gPath ?: @"(不可写)");
+    if (gPath) {
+        // 存一份 C 字符串路径：信号处理里不能用 ObjC/Foundation
+        const char *c = [gPath fileSystemRepresentation];
+        if (c) { strncpy(gPathC, c, sizeof(gPathC) - 1); gPathC[sizeof(gPathC) - 1] = '\0'; }
+    }
 }
 
 NSString *YBLogFilePath(void) { return gPath; }
@@ -64,6 +76,52 @@ void YBLogFlush(void) {
 
 void YBLogEnableCrashHandler(void) {
     NSSetUncaughtExceptionHandler(&YBCrashHandlerRaw);
+}
+
+// ---- 同步日志：写完立刻落盘，硬崩溃也不丢最后几行 ----
+void YBLogSync(NSString *fmt, ...) {
+    if (!gQ) YBLogBootstrap();
+    va_list ap; va_start(ap, fmt);
+    NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:ap];
+    va_end(ap);
+    YBLogWrite([NSString stringWithFormat:@"[%@] %@", [gFmt stringFromDate:[NSDate date]], msg]);
+}
+
+// ---- 进度标记：崩溃时把"最后进行到哪一步"一并写进日志 ----
+void YBSetTrace(const char *step) {
+    if (!step) return;
+    strncpy(gTrace, step, sizeof(gTrace) - 1);
+    gTrace[sizeof(gTrace) - 1] = '\0';
+}
+
+// 信号处理里只能用 open/write/close 这类 async-signal-safe 调用
+static void YBSigHandler(int sig) {
+    const char *name = "?";
+    switch (sig) {
+        case SIGSEGV: name = "SIGSEGV(野指针/坏内存)"; break;
+        case SIGABRT: name = "SIGABRT(断言/abort)"; break;
+        case SIGBUS:  name = "SIGBUS(非法访问)"; break;
+        case SIGILL:  name = "SIGILL(非法指令)"; break;
+        case SIGFPE:  name = "SIGFPE(算术异常)"; break;
+        case SIGTRAP: name = "SIGTRAP(断点/系统陷阱)"; break;
+    }
+    char buf[400];
+    int n = snprintf(buf, sizeof(buf), "\n[信号崩溃] signal=%d %s last_step=%s\n", sig, name, gTrace);
+    if (gPathC[0] && n > 0) {
+        int fd = open(gPathC, O_WRONLY | O_APPEND | O_CREAT, 0644);
+        if (fd >= 0) { write(fd, buf, (size_t)n); close(fd); }
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+void YBLogInstallSignalHandlers(void) {
+    signal(SIGSEGV, YBSigHandler);
+    signal(SIGBUS,  YBSigHandler);
+    signal(SIGABRT, YBSigHandler);
+    signal(SIGILL,  YBSigHandler);
+    signal(SIGFPE,  YBSigHandler);
+    signal(SIGTRAP, YBSigHandler);
 }
 
 void YBLog(NSString *fmt, ...) {
