@@ -44,7 +44,7 @@ static void YBLogWrite(NSString *line) {
                 [fh seekToEndOfFile];
                 [fh writeData:[[line stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding]];
                 [fh closeFile];
-            } @catch (__unused NSException *e) {}
+            } @catch (NSException *e) { (void)e; }
         }
     }
 }

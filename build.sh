@@ -3,104 +3,130 @@
 #  直接编译 dylib（不依赖 substrate、不生成 deb）
 #  产物：build/YuanbaoCheckin.dylib  -> 用 TrollFools 注入元宝
 #
-#  只需要：clang + 一份 iOS SDK
-#  找 SDK 的顺序：
-#     1) 环境变量 SDK=/path/to/iPhoneOSxx.sdk
-#     2) $THEOS/sdks/iPhoneOS*.sdk
-#     3) ./sdk/iPhoneOS*.sdk
-#  其它环境变量：
-#     MIN_IOS   最低系统版本（默认 14.0）
-#     ARCHS     架构（默认 "arm64"；需要时设 ARCHS="arm64 arm64e"）
+#  可用环境变量：
+#     SDK        指定 iPhoneOSxx.sdk（默认自动查找 / 自动下载）
+#     CLANG      指定 clang（默认优先用 theos 工具链里的）
+#     THEOS      theos 根目录（默认 $HOME/theos）
+#     MIN_IOS    最低系统版本（默认 14.0）
+#     ARCHS      架构（默认 "arm64"）
+#     FUSE_LD    链接器（Linux 交叉编译时用 lld，默认自动）
+#     SIGN       1 = 编译完顺手伪签名（默认关，TrollFools 注入时会重签）
 # ============================================================
 set -euo pipefail
 cd "$(dirname "$0")"
 
 MIN_IOS="${MIN_IOS:-14.0}"
 ARCHS="${ARCHS:-arm64}"
+SDK_VER="${SDK_VER:-16.5}"
 THEOS="${THEOS:-$HOME/theos}"
 
-# ---------- 找 SDK（找不到就自动下载到 ./sdk）----------
-SDK_VER="${SDK_VER:-16.5}"
+log() { echo "[build] $*"; }
+die() { echo "[build][ERROR] $*" >&2; exit 1; }
 
+# ---------- 找 SDK ----------
 find_sdk() {
-  if [ -n "${SDK:-}" ] && [ -d "${SDK}" ]; then echo "$SDK"; return; fi
+  if [ -n "${SDK:-}" ] && [ -d "${SDK}/usr/include" ]; then echo "$SDK"; return 0; fi
   local d
-  for d in "$THEOS"/sdks/iPhoneOS*.sdk ./sdk/iPhoneOS*.sdk; do
-    [ -d "$d" ] && { echo "$d"; return; }
+  for d in "$THEOS"/sdks/iPhoneOS*.sdk ./sdk/iPhoneOS*.sdk /opt/theos/sdks/iPhoneOS*.sdk; do
+    [ -d "$d/usr/include" ] && { echo "$d"; return 0; }
   done
+  return 1
 }
 
 fetch_sdk() {
-  local url="https://github.com/theos/sdks/releases/latest/download/iPhoneOS${SDK_VER}.sdk.tar.xz"
-  echo "[build] 未找到 SDK，尝试下载 iPhoneOS${SDK_VER}.sdk ..." >&2
+  log "未找到可用 SDK，尝试下载 iPhoneOS${SDK_VER}.sdk ..."
   mkdir -p ./sdk
+  local url="https://github.com/theos/sdks/releases/latest/download/iPhoneOS${SDK_VER}.sdk.tar.xz"
   if curl -fL --retry 3 --connect-timeout 30 -o /tmp/sdk.tar.xz "$url"; then
-    tar -xf /tmp/sdk.tar.xz -C ./sdk && echo "[build] SDK 已解压到 ./sdk" >&2
+    tar -xf /tmp/sdk.tar.xz -C ./sdk || die "SDK 解压失败"
+    log "SDK 已解压到 ./sdk"
   else
-    echo "[build] 下载 SDK 失败（$url）" >&2
+    log "下载 SDK 失败：$url"
   fi
 }
 
-SDK="$(find_sdk || true)"
-if [ -z "${SDK:-}" ] || [ ! -d "$SDK" ]; then
+SDK_PATH="$(find_sdk || true)"
+if [ -z "${SDK_PATH:-}" ]; then
   fetch_sdk
-  SDK="$(find_sdk || true)"
+  SDK_PATH="$(find_sdk || true)"
 fi
-if [ -z "${SDK:-}" ] || [ ! -d "$SDK" ]; then
-  echo "找不到 iOS SDK。可手动设置 SDK=/path/to/iPhoneOSxx.sdk，或放到 $THEOS/sdks/ 或 ./sdk/" >&2
-  exit 1
-fi
-echo "[build] SDK   = $SDK"
-echo "[build] MIN   = iOS $MIN_IOS"
-echo "[build] ARCHS = $ARCHS"
+[ -n "${SDK_PATH:-}" ] || die "找不到 iOS SDK；可设置 SDK=/path/to/iPhoneOSxx.sdk，或放到 \$THEOS/sdks/ 或 ./sdk/"
+export SDK="$SDK_PATH"
 
 # ---------- 找 clang ----------
 CLANG="${CLANG:-}"
 if [ -z "$CLANG" ]; then
-  for c in "$THEOS"/toolchain/*/bin/clang "$THEOS"/toolchain/*/*/bin/clang; do
+  for c in "$THEOS"/toolchain/*/*/bin/clang "$THEOS"/toolchain/*/bin/clang /opt/theos/toolchain/*/*/bin/clang; do
     [ -x "$c" ] && CLANG="$c" && break
   done
 fi
 [ -z "$CLANG" ] && CLANG="$(command -v clang || true)"
-[ -z "$CLANG" ] && { echo "找不到 clang" >&2; exit 1; }
-echo "[build] clang = $CLANG ($("$CLANG" --version 2>/dev/null | head -1))"
+[ -n "$CLANG" ] || die "找不到 clang"
+
+# 让 clang 能找到同目录下的 ld64.lld（Linux 交叉编译必须）
+CLANG_DIR="$(dirname "$CLANG")"
+case ":$PATH:" in *":$CLANG_DIR:"*) ;; *) export PATH="$CLANG_DIR:$PATH" ;; esac
+
+log "==================== 环境 ===================="
+log "host  = $(uname -s) $(uname -m)"
+log "clang = $CLANG"
+"$CLANG" --version 2>/dev/null | head -2 || true
+log "ld64  = $(command -v ld64.lld || echo '未在 PATH 中找到 ld64.lld')"
+log "SDK   = $SDK"
+log "MIN   = iOS $MIN_IOS"
+log "ARCHS = $ARCHS"
+log "============================================="
+
+[ -d "$SDK/usr/include" ] || die "SDK 不完整：$SDK（缺少 usr/include）"
 
 # ---------- 源文件 ----------
 SRC=(Tweak.m YBEngine.m YBTouch.m YBScreen.m YBConfig.m YBStep.m YBLog.m YBUI.m)
 for f in "${SRC[@]}"; do
-  [ -f "$f" ] || { echo "缺少源文件: $f" >&2; exit 1; }
+  [ -f "$f" ] || die "缺少源文件: $f"
 done
 
 ARCH_FLAGS=(); for a in $ARCHS; do ARCH_FLAGS+=(-arch "$a"); done
+
+# 非 Darwin 主机（Linux CI）上交叉编译 Mach-O：必须显式给 target + lld
+HOST_OS="$(uname -s)"
+TARGET_FLAGS=(); LINK_FLAGS=()
+if [ "$HOST_OS" != "Darwin" ]; then
+  TARGET_FLAGS+=(-target "arm64-apple-ios${MIN_IOS}")
+  LINK_FLAGS+=(-fuse-ld="${FUSE_LD:-lld}")
+fi
+# 注入到 App 的 dylib：系统/ObjC 运行时符号留到加载时解析
+LINK_FLAGS+=(-Wl,-undefined,dynamic_lookup)
+LINK_FLAGS+=(-Wl,-install_name,@executable_path/Frameworks/YuanbaoCheckin.dylib)
 
 mkdir -p build
 set -x
 "$CLANG" -dynamiclib \
   "${ARCH_FLAGS[@]}" \
+  "${TARGET_FLAGS[@]}" \
   -isysroot "$SDK" \
   -miphoneos-version-min="$MIN_IOS" \
   -fobjc-arc -O2 \
-  -Wno-deprecated-declarations \
+  -Wno-deprecated-declarations -Wno-unused-variable \
   -I. \
   -framework Foundation -framework UIKit -framework Vision \
   -framework CoreGraphics -framework CoreImage -framework QuartzCore \
   "${SRC[@]}" \
-  -install_name @executable_path/Frameworks/YuanbaoCheckin.dylib \
+  "${LINK_FLAGS[@]}" \
   -o build/YuanbaoCheckin.dylib
 set +x
+
+[ -f build/YuanbaoCheckin.dylib ] || die "没有生成 build/YuanbaoCheckin.dylib"
 
 # ---------- 可选伪签名（TrollFools 注入时会重签，通常不需要） ----------
 if [ "${SIGN:-0}" = "1" ]; then
   if command -v ldid >/dev/null 2>&1; then
-    ldid -S build/YuanbaoCheckin.dylib && echo "[build] 已 ldid 伪签名"
-  elif command -v codesign >/dev/null 2>&1; then
-    codesign --force --sign - build/YuanbaoCheckin.dylib && echo "[build] 已 codesign 临时签名"
+    ldid -S build/YuanbaoCheckin.dylib && log "已 ldid 伪签名"
   else
-    echo "[build] 没找到 ldid/codesign，跳过签名（一般不影响 TrollFools）"
+    log "没找到 ldid，跳过签名（不影响 TrollFools 注入）"
   fi
 fi
 
-echo "[build] 架构检查："
+log "架构检查："
 ( command -v lipo >/dev/null 2>&1 && lipo -info build/YuanbaoCheckin.dylib ) || file build/YuanbaoCheckin.dylib || true
 ls -lh build/YuanbaoCheckin.dylib
-echo "[build] 完成 -> build/YuanbaoCheckin.dylib"
+log "完成 -> build/YuanbaoCheckin.dylib"

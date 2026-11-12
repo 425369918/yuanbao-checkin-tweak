@@ -1,39 +1,79 @@
 name: build
 
+# 为什么不用 macOS runner：
+#   本账号的 macOS runner 会一直排队（几十分钟不动），而 Linux runner 正常。
+#   所以这里改成 ubuntu-latest 上的「纯 Linux 交叉编译」：
+#     theos 的 Linux 版 iOS 工具链（clang + ld64.lld）→ 直接产出 arm64 Mach-O dylib。
+#   不占 macOS 额度、不用 Docker 容器、也不需要 Xcode。
+
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'fix/**' ]
   workflow_dispatch:
+
+permissions:
+  contents: write   # 需要把 build.log / dylib 推到 ci-output 分支，方便排查
 
 jobs:
   dylib:
-    # macos-13 = Intel(x86_64) runner，避免账号不支持 arm64 macOS 变体的问题
-    runs-on: macos-13
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Show toolchain
+      - name: Build dylib (Linux cross-compile)
         run: |
-          uname -m
-          xcodebuild -version || true
-          xcrun --sdk iphoneos --show-sdk-path
-          xcrun --sdk iphoneos --show-sdk-version
+          set -o pipefail
+          {
+            set -eux
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq xz-utils curl file
 
-      - name: Build dylib
-        run: |
-          export SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-          export CLANG="$(xcrun --sdk iphoneos -f clang)"
-          export MIN_IOS=14.0
-          export ARCHS=arm64
-          bash ./build.sh
+            export THEOS="$RUNNER_TEMP/theos"
+            mkdir -p "$THEOS/toolchain" "$THEOS/sdks"
 
-      - name: Verify artifact
-        run: |
-          lipo -info build/YuanbaoCheckin.dylib
-          ls -lh build/YuanbaoCheckin.dylib
+            # theos 官方 Linux 版 iOS 工具链（内含 clang + ld64.lld）
+            curl -fsSL --retry 3 --connect-timeout 30 -o /tmp/tool.tar.xz \
+              https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz
+            tar -xf /tmp/tool.tar.xz -C "$THEOS/toolchain"
 
-      - uses: actions/upload-artifact@v4
+            # iOS SDK
+            curl -fsSL --retry 3 --connect-timeout 30 -o /tmp/sdk.tar.xz \
+              https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz
+            tar -xf /tmp/sdk.tar.xz -C "$THEOS/sdks"
+
+            export CLANG="$THEOS/toolchain/linux/iphone/bin/clang"
+            export PATH="$THEOS/toolchain/linux/iphone/bin:$PATH"
+            export SDK="$(echo "$THEOS"/sdks/iPhoneOS*.sdk)"
+            export FUSE_LD=lld MIN_IOS=14.0 ARCHS=arm64
+
+            ls -l "$CLANG"
+            command -v ld64.lld || true
+            "$CLANG" --version | head -2
+            bash ./build.sh
+            file build/YuanbaoCheckin.dylib
+          } 2>&1 | tee build.log
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: YuanbaoCheckin-dylib
           path: build/YuanbaoCheckin.dylib
           if-no-files-found: error
+
+      # 失败时也能把日志带出来（本机没有 token 读不到 Actions 日志，所以用分支传递）
+      - name: Publish build.log (and dylib if built) to ci-output branch
+        if: always()
+        continue-on-error: true
+        run: |
+          set -eux
+          mkdir -p /tmp/ciout && cd /tmp/ciout
+          cp "$GITHUB_WORKSPACE/build.log" log.txt 2>/dev/null || echo "(no build log)" > log.txt
+          if [ -f "$GITHUB_WORKSPACE/build/YuanbaoCheckin.dylib" ]; then
+            cp "$GITHUB_WORKSPACE/build/YuanbaoCheckin.dylib" YuanbaoCheckin.dylib
+          fi
+          printf 'run=%s\nsha=%s\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > meta.txt
+          git init -q -b ci-output
+          git add -A
+          git -c user.name=ci -c user.email=ci@local commit -qm "ci $GITHUB_RUN_ID"
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" ci-output

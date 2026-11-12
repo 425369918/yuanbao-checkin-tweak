@@ -38,7 +38,7 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
 }
 
 - (void)warmUp {
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         UIGraphicsBeginImageContextWithOptions(CGSizeMake(8, 8), NO, 1);
         UIImage *img = UIGraphicsGetImageFromCurrentImageContext();
         UIGraphicsEndImageContext();
@@ -202,11 +202,14 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
 }
 
 - (void)saveReport {
-    NSDictionary *d = @{@"time": [NSDate date], @"items": self.report ?: @[]};
+    NSDateFormatter *f = [NSDateFormatter new]; f.dateFormat = @"yyyy-MM-dd HH:mm:ss";
+    // 注意：NSDate 不能直接进 JSON，先转字符串
+    NSDictionary *d = @{@"time": [f stringFromDate:[NSDate date]], @"items": self.report ?: @[]};
     NSData *j = [NSJSONSerialization dataWithJSONObject:d options:NSJSONWritingPrettyPrinted error:NULL];
+    if (!j) { YBLog(@"[报告] JSON 序列化失败"); return; }
     NSString *dir = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
     [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
-    NSDateFormatter *f = [NSDateFormatter new]; f.dateFormat = @"yyyyMMdd-HHmmss";
+    f.dateFormat = @"yyyyMMdd-HHmmss";
     NSString *p = [dir stringByAppendingPathComponent:
                    [NSString stringWithFormat:@"YuanbaoCheckin-%@.json", [f stringFromDate:[NSDate date]]]];
     [j writeToFile:p atomically:YES];
