@@ -1,0 +1,8 @@
+Package: com.yb.checkin
+Name: YuanbaoCheckin
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 腾讯元宝福利中心每日任务自动完成（iOS/TrollStore 巨魔版，Vision 中文 OCR 自适应，零坐标）
+Maintainer: local
+Author: local
+Section: Tweaks

@@ -1,0 +1,38 @@
+name: build
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  dylib:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version || true
+          clang --version
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build dylib (Xcode iOS SDK)
+        run: |
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CLANG="$(xcrun --sdk iphoneos -f clang)"
+          export SDK CLANG
+          export MIN_IOS=14.0
+          bash ./build.sh
+
+      - name: Verify artifact
+        run: |
+          lipo -info build/YuanbaoCheckin.dylib
+          ls -lh build/YuanbaoCheckin.dylib
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YuanbaoCheckin-dylib
+          path: build/YuanbaoCheckin.dylib
+          if-no-files-found: error
