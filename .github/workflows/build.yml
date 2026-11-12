@@ -7,63 +7,29 @@ on:
 
 jobs:
   dylib:
-    # Linux + theos 容器：不占用 macOS runner（私有仓库免费额度不含 macOS）
-    runs-on: ubuntu-latest
-    container:
-      image: theos/theos:latest
-      options: --user root
+    # 公开仓库可免费使用 macOS runner。本工程只需 clang + iOS SDK，不需要 theos。
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
-      - name: Locate theos + SDK
-        id: env
+      - name: Show toolchain
         run: |
-          set -x
-          echo "PATH=$PATH"
-          # 找 theos 根目录
-          THEOS=""
-          for c in "${THEOS:-}" /opt/theos /theos "$HOME/theos" /usr/local/theos; do
-            if [ -n "$c" ] && [ -f "$c/makefiles/common.mk" ]; then THEOS="$c"; break; fi
-          done
-          if [ -z "$THEOS" ]; then
-            echo "容器里没有 theos，现场克隆"
-            apt-get update -qq && apt-get install -y -qq git curl xz-utils ca-certificates make perl
-            git clone --recursive --depth 1 https://github.com/theos/theos.git /opt/theos
-            THEOS=/opt/theos
-          fi
-          echo "THEOS=$THEOS"
-          ls "$THEOS/sdks" 2>/dev/null || true
-
-          # 找 / 下载 SDK
-          SDK=""
-          for d in "$THEOS"/sdks/iPhoneOS*.sdk; do [ -d "$d" ] && SDK="$d" && break; done
-          if [ -z "$SDK" ]; then
-            echo "没找到 SDK，下载 iPhoneOS16.5"
-            mkdir -p "$THEOS/sdks" /tmp/sdk
-            curl -fL --retry 3 -o /tmp/sdk/s.tar.xz \
-              https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz
-            tar -xf /tmp/sdk/s.tar.xz -C "$THEOS/sdks"
-            for d in "$THEOS"/sdks/iPhoneOS*.sdk; do [ -d "$d" ] && SDK="$d" && break; done
-          fi
-          echo "SDK=$SDK"
-          [ -n "$SDK" ] || { echo "拿不到 SDK"; exit 1; }
-
-          {
-            echo "THEOS=$THEOS"
-            echo "SDK=$SDK"
-          } >> "$GITHUB_ENV"
+          xcodebuild -version || true
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Build dylib
         run: |
-          export PATH="$THEOS/bin:$PATH"
+          export SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          export CLANG="$(xcrun --sdk iphoneos -f clang)"
           export MIN_IOS=14.0
           export ARCHS=arm64
           bash ./build.sh
 
       - name: Verify artifact
         run: |
+          lipo -info build/YuanbaoCheckin.dylib
           ls -lh build/YuanbaoCheckin.dylib
-          ( command -v lipo >/dev/null && lipo -info build/YuanbaoCheckin.dylib ) || true
 
       - uses: actions/upload-artifact@v4
         with:
