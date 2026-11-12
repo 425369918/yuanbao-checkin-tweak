@@ -158,7 +158,18 @@ static NSString *YBExtractText(UIView *v) {
 
 - (void)togglePanel {
     if (self.panel) { [self.panel removeFromSuperview]; self.panel = nil; [self.logTimer invalidate]; return; }
-    [self buildPanel];
+    // 建面板涉及一堆控件/字体/定时器，任何一步抛异常都别把 App 带崩：兜住并记日志
+    @try {
+        [self buildPanel];
+        YBLog(@"[面板] 已显示");
+    } @catch (NSException *e) {
+        YBLog(@"[面板] 构建异常: %@ | %@\n%@", e.name, e.reason,
+              [e.callStackSymbols componentsJoinedByString:@"\n"]);
+        if (self.panel.superview) [self.panel removeFromSuperview];
+        self.panel = nil;
+        [self.logTimer invalidate];
+        self.logTimer = nil;
+    }
 }
 
 - (UIColor *)panelBG { return [UIColor colorWithRed:0.09 green:0.10 blue:0.13 alpha:0.97]; }
@@ -190,6 +201,7 @@ static NSString *YBExtractText(UIView *v) {
     UIScrollView *sv = [[UIScrollView alloc] initWithFrame:p.bounds];
     sv.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     [p addSubview:sv];
+    YBLog(@"[面板] 1 窗口+容器 OK (%.0fx%.0f)", w, h);
 
     CGFloat y = 14, pad = 12, iw = w - pad*2;
 
@@ -218,6 +230,7 @@ static NSString *YBExtractText(UIView *v) {
     }
     if (tasks.count % 2 == 1) y += 40;
     y += 8;
+    YBLog(@"[面板] 2 任务按钮 OK（%lu 个）", (unsigned long)tasks.count);
 
     UILabel *l2 = [self label:@"自动执行时间" y:y w:iw pad:pad]; [sv addSubview:l2]; y += 26;
     UIStepper *st = [[UIStepper alloc] initWithFrame:CGRectMake(pad, y, 94, 32)];
@@ -232,6 +245,7 @@ static NSString *YBExtractText(UIView *v) {
                             y:y w:iw pad:pad+220]; tl.tag = 999; [sv addSubview:tl];
     self.timeLabel = tl;
     y += 40;
+    YBLog(@"[面板] 3 时间控件 OK");
 
     UIButton *rec = [self mkButton:@"🎯 点文字录制（对准按钮点一下）" color:[UIColor colorWithRed:0.85 green:0.45 blue:0.10 alpha:1] action:@selector(startRecord)];
     rec.frame = CGRectMake(pad, y, iw, 38); [sv addSubview:rec]; y += 46;
@@ -246,6 +260,7 @@ static NSString *YBExtractText(UIView *v) {
     self.logView.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
     self.logView.text = [[YBLogTail(120) componentsJoinedByString:@"\n"] copy];
     [sv addSubview:self.logView]; y += 158;
+    YBLog(@"[面板] 4 日志视图 OK");
 
     sv.contentSize = CGSizeMake(w, y + 12);
 
@@ -257,6 +272,7 @@ static NSString *YBExtractText(UIView *v) {
         ss.logView.text = txt;
         if (txt.length) [ss.logView scrollRangeToVisible:NSMakeRange(txt.length, 0)];
     }];
+    YBLog(@"[面板] 5 定时器 OK");
 }
 
 - (UILabel *)label:(NSString *)t y:(CGFloat)y w:(CGFloat)w pad:(CGFloat)pad {

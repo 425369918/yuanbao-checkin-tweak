@@ -49,6 +49,23 @@ static void YBLogWrite(NSString *line) {
     }
 }
 
+// 未捕获异常：直接把原因 + 调用栈同步写进日志，方便事后定位（跑完就闪退也能留痕）
+static void YBCrashHandlerRaw(NSException *e) {
+    NSString *msg = [NSString stringWithFormat:@"[崩溃] %@ | %@\n%@",
+                     e.name ?: @"?",
+                     e.reason ?: @"?",
+                     [e.callStackSymbols componentsJoinedByString:@"\n"]];
+    YBLogWrite(msg);
+}
+
+void YBLogFlush(void) {
+    if (gQ) dispatch_sync(gQ, ^{});
+}
+
+void YBLogEnableCrashHandler(void) {
+    NSSetUncaughtExceptionHandler(&YBCrashHandlerRaw);
+}
+
 void YBLog(NSString *fmt, ...) {
     if (!gQ) YBLogBootstrap();
     va_list ap; va_start(ap, fmt);

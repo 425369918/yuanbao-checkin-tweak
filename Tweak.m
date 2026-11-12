@@ -68,6 +68,17 @@ __attribute__((constructor))
 static void YBTweakInit(void) {
     @autoreleasepool {
         YBLogBootstrap();
+        YBLogEnableCrashHandler();   // 未捕获异常也写进日志，闪退能留痕
+
+#ifdef YB_SAFE
+        // ===== 安全版：只验证「注入 → 加载 → 写日志」，完全不碰 UI / 任务 =====
+        YBLog(@"[安全版] dylib 已加载 pid=%d bundle=%@", getpid(),
+              [NSBundle mainBundle].bundleIdentifier ?: @"?");
+        YBLog(@"[安全版] 日志文件: %@", YBLogFilePath());
+        YBLog(@"[安全版] 不装悬浮球、不建面板、不跑任务；能看到这几行就说明注入链路正常");
+        YBLogFlush();
+        return;
+#else
         YBLog(@"[注入] dylib loaded, pid=%d", getpid());
 
         [[NSNotificationCenter defaultCenter]
@@ -77,5 +88,6 @@ static void YBTweakInit(void) {
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{ YBStartAfterLaunch(); });
+#endif
     }
 }

@@ -52,13 +52,17 @@ jobs:
             "$CLANG" --version | head -2
             bash ./build.sh
             file build/YuanbaoCheckin.dylib
+
+            # 第二个产物：安全版（只打日志、不碰 UI 与任务），用来验证注入链路
+            OUT=build/YuanbaoCheckin-safe.dylib EXTRA_CFLAGS='-DYB_SAFE=1' bash ./build.sh
+            file build/YuanbaoCheckin-safe.dylib
           } 2>&1 | tee build.log
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: YuanbaoCheckin-dylib
-          path: build/YuanbaoCheckin.dylib
+          path: build/YuanbaoCheckin*.dylib
           if-no-files-found: error
 
       # 失败时也能把日志带出来（本机没有 token 读不到 Actions 日志，所以用分支传递）
@@ -69,9 +73,9 @@ jobs:
           set -eux
           mkdir -p /tmp/ciout && cd /tmp/ciout
           cp "$GITHUB_WORKSPACE/build.log" log.txt 2>/dev/null || echo "(no build log)" > log.txt
-          if [ -f "$GITHUB_WORKSPACE/build/YuanbaoCheckin.dylib" ]; then
-            cp "$GITHUB_WORKSPACE/build/YuanbaoCheckin.dylib" YuanbaoCheckin.dylib
-          fi
+          for f in YuanbaoCheckin.dylib YuanbaoCheckin-safe.dylib; do
+            if [ -f "$GITHUB_WORKSPACE/build/$f" ]; then cp "$GITHUB_WORKSPACE/build/$f" "$f"; fi
+          done
           printf 'run=%s\nsha=%s\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > meta.txt
           git init -q -b ci-output
           git add -A

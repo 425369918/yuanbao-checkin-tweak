@@ -11,6 +11,8 @@
 #     ARCHS      架构（默认 "arm64"）
 #     FUSE_LD    链接器（Linux 交叉编译时用 lld，默认自动）
 #     SIGN       1 = 编译完顺手伪签名（默认关，TrollFools 注入时会重签）
+#     OUT        产物路径（默认 build/YuanbaoCheckin.dylib）
+#     EXTRA_CFLAGS 追加编译参数，例："-DYB_SAFE=1" 编安全版
 # ============================================================
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -19,6 +21,8 @@ MIN_IOS="${MIN_IOS:-14.0}"
 ARCHS="${ARCHS:-arm64}"
 SDK_VER="${SDK_VER:-16.5}"
 THEOS="${THEOS:-$HOME/theos}"
+OUT="${OUT:-build/YuanbaoCheckin.dylib}"
+EXTRA_CFLAGS="${EXTRA_CFLAGS:-}"
 
 log() { echo "[build] $*"; }
 die() { echo "[build][ERROR] $*" >&2; exit 1; }
@@ -76,6 +80,8 @@ log "tools = $(ls "$CLANG_DIR" 2>/dev/null | grep -Ei '^(clang|ld|ld64|lld|ar|st
 log "SDK   = $SDK"
 log "MIN   = iOS $MIN_IOS"
 log "ARCHS = $ARCHS"
+log "OUT   = $OUT"
+[ -n "$EXTRA_CFLAGS" ] && log "EXTRA = $EXTRA_CFLAGS"
 log "============================================="
 
 [ -d "$SDK/usr/include" ] || die "SDK 不完整：$SDK（缺少 usr/include）"
@@ -98,9 +104,9 @@ if [ "$HOST_OS" != "Darwin" ]; then
 fi
 # 注入到 App 的 dylib：系统/ObjC 运行时符号留到加载时解析
 LINK_FLAGS+=(-Wl,-undefined,dynamic_lookup)
-LINK_FLAGS+=(-Wl,-install_name,@executable_path/Frameworks/YuanbaoCheckin.dylib)
+LINK_FLAGS+=(-Wl,-install_name,@executable_path/Frameworks/"$(basename "$OUT")")
 
-mkdir -p build
+mkdir -p "$(dirname "$OUT")"
 set -x
 "$CLANG" -dynamiclib \
   "${ARCH_FLAGS[@]}" \
@@ -110,25 +116,26 @@ set -x
   -fobjc-arc -O2 \
   -Wno-deprecated-declarations -Wno-unused-variable \
   -I. \
+  ${EXTRA_CFLAGS} \
   -framework Foundation -framework UIKit -framework Vision \
   -framework CoreGraphics -framework CoreImage -framework QuartzCore \
   "${SRC[@]}" \
   "${LINK_FLAGS[@]}" \
-  -o build/YuanbaoCheckin.dylib
+  -o "$OUT"
 set +x
 
-[ -f build/YuanbaoCheckin.dylib ] || die "没有生成 build/YuanbaoCheckin.dylib"
+[ -f "$OUT" ] || die "没有生成 $OUT"
 
 # ---------- 可选伪签名（TrollFools 注入时会重签，通常不需要） ----------
 if [ "${SIGN:-0}" = "1" ]; then
   if command -v ldid >/dev/null 2>&1; then
-    ldid -S build/YuanbaoCheckin.dylib && log "已 ldid 伪签名"
+    ldid -S "$OUT" && log "已 ldid 伪签名"
   else
     log "没找到 ldid，跳过签名（不影响 TrollFools 注入）"
   fi
 fi
 
 log "架构检查："
-( command -v lipo >/dev/null 2>&1 && lipo -info build/YuanbaoCheckin.dylib ) || file build/YuanbaoCheckin.dylib || true
-ls -lh build/YuanbaoCheckin.dylib
-log "完成 -> build/YuanbaoCheckin.dylib"
+( command -v lipo >/dev/null 2>&1 && lipo -info "$OUT" ) || file "$OUT" || true
+ls -lh "$OUT"
+log "完成 -> $OUT"
