@@ -232,9 +232,9 @@ static NSString *YBExtractText(UIView *v) {
     [sv addSubview:title];
     y += 26;
 
-    UIButton *close = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
-    close.frame = CGRectMake(pad, y, 52, 26);
-    [sv addSubview:close];
+    UIButton *closeBtn = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
+    closeBtn.frame = CGRectMake(pad, y, 52, 26);
+    [sv addSubview:closeBtn];
 
     UIButton *runAll = [self mkButton:@"▶ 立即执行全部任务" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
     runAll.frame = CGRectMake(pad + 58, y, iw - 58, 26);
