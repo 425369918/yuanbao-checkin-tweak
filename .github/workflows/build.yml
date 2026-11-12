@@ -24,6 +24,7 @@ jobs:
           CLANG="$(xcrun --sdk iphoneos -f clang)"
           export SDK CLANG
           export MIN_IOS=14.0
+          export ARCHS=arm64
           bash ./build.sh
 
       - name: Verify artifact

@@ -10,13 +10,13 @@
 #     3) ./sdk/iPhoneOS*.sdk
 #  其它环境变量：
 #     MIN_IOS   最低系统版本（默认 14.0）
-#     ARCHS     架构（默认 "arm64 arm64e"）
+#     ARCHS     架构（默认 "arm64"；需要时设 ARCHS="arm64 arm64e"）
 # ============================================================
 set -euo pipefail
 cd "$(dirname "$0")"
 
 MIN_IOS="${MIN_IOS:-14.0}"
-ARCHS="${ARCHS:-arm64 arm64e}"
+ARCHS="${ARCHS:-arm64}"
 THEOS="${THEOS:-$HOME/theos}"
 
 # ---------- 找 SDK ----------
