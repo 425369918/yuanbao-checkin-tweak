@@ -65,6 +65,17 @@ static NSString *YBExtractText(UIView *v) {
 // ---------- 悬浮面板 ----------
 
 @interface YBUI ()
++ (instancetype)shared;
+- (UIWindow *)window;
+- (void)buildBall;
+- (void)togglePanel;
+- (void)buildPanel;
+- (UILabel *)label:(NSString *)t y:(CGFloat)y w:(CGFloat)w pad:(CGFloat)pad;
+- (UIButton *)mkButton:(NSString *)title color:(UIColor *)c action:(SEL)a;
+- (void)refreshTimeLabel;
+- (void)askSlotForText:(NSString *)text;
+- (UIViewController *)vc;
+
 @property (nonatomic, strong) UIButton *ball;
 @property (nonatomic, strong) UIView *panel;
 @property (nonatomic, strong) UITextView *logView;

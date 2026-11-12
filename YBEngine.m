@@ -11,6 +11,17 @@
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *report;
 @property (nonatomic, strong) dispatch_queue_t workQ;
 @property (nonatomic, assign) BOOL stopRequested;
+
+- (void)setRunning:(BOOL)running;
+- (void)runOneTask:(NSString *)task count:(NSInteger)count auto:(BOOL)autoFill;
+- (BOOL)performStep:(YBStep *)s;
+- (BOOL)ocrTap:(NSArray<NSString *> *)keys;
+- (BOOL)visibleTextMatches:(NSArray<NSString *> *)keys;
+- (void)onMainVoid:(dispatch_block_t)block;
+- (BOOL)onMain:(BOOL(^)(void))block;
+- (void)beginBG;
+- (void)endBG;
+- (void)saveReport;
 @end
 
 NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
