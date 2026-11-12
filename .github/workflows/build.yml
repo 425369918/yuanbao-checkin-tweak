@@ -45,10 +45,10 @@ jobs:
             export CLANG="$THEOS/toolchain/linux/iphone/bin/clang"
             export PATH="$THEOS/toolchain/linux/iphone/bin:$PATH"
             export SDK="$(echo "$THEOS"/sdks/iPhoneOS*.sdk)"
-            export FUSE_LD=lld MIN_IOS=14.0 ARCHS=arm64
+            export FUSE_LD= MIN_IOS=14.0 ARCHS=arm64
 
             ls -l "$CLANG"
-            command -v ld64.lld || true
+            ls "$THEOS/toolchain/linux/iphone/bin" | head -50
             "$CLANG" --version | head -2
             bash ./build.sh
             file build/YuanbaoCheckin.dylib

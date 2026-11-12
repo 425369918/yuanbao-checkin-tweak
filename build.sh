@@ -72,6 +72,7 @@ log "host  = $(uname -s) $(uname -m)"
 log "clang = $CLANG"
 "$CLANG" --version 2>/dev/null | head -2 || true
 log "ld64  = $(command -v ld64.lld || echo '未在 PATH 中找到 ld64.lld')"
+log "tools = $(ls "$CLANG_DIR" 2>/dev/null | grep -Ei '^(clang|ld|ld64|lld|ar|strip)' | tr '\n' ' ')"
 log "SDK   = $SDK"
 log "MIN   = iOS $MIN_IOS"
 log "ARCHS = $ARCHS"
@@ -87,12 +88,13 @@ done
 
 ARCH_FLAGS=(); for a in $ARCHS; do ARCH_FLAGS+=(-arch "$a"); done
 
-# 非 Darwin 主机（Linux CI）上交叉编译 Mach-O：必须显式给 target + lld
+# 非 Darwin 主机（Linux CI）上交叉编译 Mach-O：显式给 target
+# 链接器默认交给工具链自己决定（clang 11 的工具链不认 -fuse-ld=lld，只有显式指定时才加）
 HOST_OS="$(uname -s)"
 TARGET_FLAGS=(); LINK_FLAGS=()
 if [ "$HOST_OS" != "Darwin" ]; then
   TARGET_FLAGS+=(-target "arm64-apple-ios${MIN_IOS}")
-  LINK_FLAGS+=(-fuse-ld="${FUSE_LD:-lld}")
+  [ -n "${FUSE_LD:-}" ] && LINK_FLAGS+=(-fuse-ld="${FUSE_LD}")
 fi
 # 注入到 App 的 dylib：系统/ObjC 运行时符号留到加载时解析
 LINK_FLAGS+=(-Wl,-undefined,dynamic_lookup)
