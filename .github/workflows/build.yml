@@ -7,13 +7,14 @@ on:
 
 jobs:
   dylib:
-    # 公开仓库可免费使用 macOS runner。本工程只需 clang + iOS SDK，不需要 theos。
-    runs-on: macos-14
+    # macos-13 = Intel(x86_64) runner，避免账号不支持 arm64 macOS 变体的问题
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
       - name: Show toolchain
         run: |
+          uname -m
           xcodebuild -version || true
           xcrun --sdk iphoneos --show-sdk-path
           xcrun --sdk iphoneos --show-sdk-version
