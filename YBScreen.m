@@ -40,7 +40,8 @@
     NSMutableArray *out = [NSMutableArray array];
     // 注意：UIImage.size 已是「点」，OCR 坐标要按「像素」换算后再除以 scale
     CGSize px = CGSizeMake(CGImageGetWidth(cg), CGImageGetHeight(cg));
-    CGFloat sc = self.scale > 0 ? self.scale : UIScreen.mainScreen.scale;
+    // 只用 capture() 里在主线程算好的 scale，避免在后台线程碰 UIScreen
+    CGFloat sc = self.scale > 0 ? self.scale : 2.0;
 
     VNImageRequestHandler *h = [[VNImageRequestHandler alloc] initWithCGImage:cg options:@{}];
     VNRecognizeTextRequest *req = [[VNRecognizeTextRequest alloc] init];

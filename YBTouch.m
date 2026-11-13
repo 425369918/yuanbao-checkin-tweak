@@ -5,6 +5,7 @@
 
 @interface YBTouch ()
 + (UIView *)_enclosingTable:(UIView *)v;
++ (UIView *)deepHit:(CGPoint)pt in:(UIView *)root;
 @end
 
 @implementation YBTouch
@@ -115,10 +116,26 @@ static BOOL YBFireGestures(UIView *v) {
     return NO;
 }
 
+// 自己手动做命中测试：不用 [win hitTest:withEvent:nil]
+// 原因：注入进第三方 App 后，它们自己重写的 hitTest:withEvent: 常常默认 event 不为 nil，
+// 传 nil 进去会直接崩（野指针），这是"一点执行就闪退"的典型来源。
++ (UIView *)deepHit:(CGPoint)pt in:(UIView *)root {
+    UIView *best = nil;
+    for (UIView *sub in root.subviews) {          // 后加的先测（层级更高的在上面）
+        if (sub.hidden || sub.alpha < 0.01) continue;
+        if (!sub.userInteractionEnabled) continue;
+        CGPoint lp = [sub convertPoint:pt fromView:root];
+        if (!CGRectContainsPoint(sub.bounds, lp)) continue;
+        UIView *deep = [self deepHit:pt in:sub];
+        if (deep) best = deep;
+    }
+    return best ?: (root.userInteractionEnabled || root == root.window ? root : nil);
+}
+
 + (BOOL)tapPoint:(CGPoint)pt {
     UIWindow *win = [self keyWindow];
     if (!win) { YBLog(@"[点按] 无 key window"); return NO; }
-    UIView *hit = [win hitTest:pt withEvent:nil];
+    UIView *hit = [self deepHit:pt in:win];
     if (!hit) { YBLog(@"[点按] (%.0f,%.0f) 未命中任何视图", pt.x, pt.y); return NO; }
 
     // 1) 向上找 UIControl

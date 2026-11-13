@@ -72,15 +72,18 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     if ([list containsObject:@"auto"]) list = [YBConfig enabledTasks];
 
     dispatch_async(self.workQ, ^{
-        YBLog(@"===== 开始，任务 %@ count=%@ auto=%@ =====",
-              list, count > 0 ? @(count) : @"默认", autoFill ? @"是" : @"否");
+        YBSetTrace("run:start");
+        YBLogSync(@"===== 开始，任务 %@ count=%@ auto=%@ =====",
+                  list, count > 0 ? @(count) : @"默认", autoFill ? @"是" : @"否");
         for (NSString *task in list) {
             if (self.stopRequested) { YBLog(@"[停止] 收到停止请求"); break; }
+            YBSetTrace("run:task");
+            YBLogSync(@"----- 任务开始 %@ -----", task);
             @try { [self runOneTask:task count:count auto:autoFill]; }
-            @catch (NSException *e) { YBLog(@"[异常] %@: %@", task, e.reason); }
+            @catch (NSException *e) { YBLogSync(@"[异常] %@: %@ %@", task, e.name, e.reason); }
             [NSThread sleepForTimeInterval:1.2];
         }
-        YBLog(@"===== 全部结束 =====");
+        YBLogSync(@"===== 全部结束 =====");
         [self setRunning:NO];
         [self endBG];
         [YBConfig markRunToday];
@@ -109,6 +112,8 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
 }
 
 - (BOOL)performStep:(YBStep *)s {
+    YBSetTrace("step:run");
+    YBLogSync(@"[步骤] kind=%ld keys=%@ secs=%.1f", (long)s.kind, s.keys ?: @[], (double)s.seconds);
     switch (s.kind) {
         case YBStepSleep:
             [NSThread sleepForTimeInterval:s.seconds];
@@ -164,12 +169,21 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
 }
 
 - (void)onMainVoid:(dispatch_block_t)block {
-    if ([NSThread isMainThread]) block(); else dispatch_sync(dispatch_get_main_queue(), block);
+    // 注意：主线程 block 里抛的异常，外面 workQ 上的 @try 是接不住的（会直接 abort）。
+    // 所以这里在"主线程那一侧"自己兜异常。
+    dispatch_block_t run = ^{
+        @try { block(); }
+        @catch (NSException *e) { YBLogSync(@"[主线程异常] %@ | %@", e.name, e.reason); }
+    };
+    if ([NSThread isMainThread]) run(); else dispatch_sync(dispatch_get_main_queue(), run);
 }
 - (BOOL)onMain:(BOOL(^)(void))block {
-    if ([NSThread isMainThread]) return block();
     __block BOOL r = NO;
-    dispatch_sync(dispatch_get_main_queue(), ^{ r = block(); });
+    dispatch_block_t run = ^{
+        @try { r = block(); }
+        @catch (NSException *e) { YBLogSync(@"[主线程异常] %@ | %@", e.name, e.reason); r = NO; }
+    };
+    if ([NSThread isMainThread]) run(); else dispatch_sync(dispatch_get_main_queue(), run);
     return r;
 }
 

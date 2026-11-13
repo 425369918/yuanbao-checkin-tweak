@@ -203,7 +203,7 @@ static NSString *YBExtractText(UIView *v) {
         return;
     }
     CGFloat w = MIN(MAX(win.bounds.size.width - 40, 240), 340);
-    CGFloat h = 212;
+    CGFloat h = 268;
     CGRect f = CGRectMake((win.bounds.size.width - w) / 2, (win.bounds.size.height - h) / 2, w, h);
 
     UIView *p = [[UIView alloc] initWithFrame:f];
@@ -231,9 +231,9 @@ static NSString *YBExtractText(UIView *v) {
     [p addSubview:cl];
     YBLogSync(@"[面板] 4 关闭按钮 OK");
 
-    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 126, w - 28, 76)];
-    lg.numberOfLines = 5;
-    lg.font = [UIFont systemFontOfSize:9];
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 126, w - 28, 130)];
+    lg.numberOfLines = 16;
+    lg.font = [UIFont systemFontOfSize:8];
     lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
     lg.text = [self logText];
     [p addSubview:lg];
@@ -244,7 +244,16 @@ static NSString *YBExtractText(UIView *v) {
 }
 
 - (NSString *)logText {
-    NSArray<NSString *> *t = YBLogTail(5);
+    // 直接读日志文件的末尾：这样连"上一个进程崩溃前的最后几行"也能显示出来
+    // （内存里的环形缓冲只属于当前进程，崩了就没东西可看）
+    NSString *p = YBLogFilePath();
+    NSString *all = p ? [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:NULL] : nil;
+    if (all.length) {
+        NSArray<NSString *> *ls = [all componentsSeparatedByString:@"\n"];
+        NSUInteger n = MIN(ls.count, (NSUInteger)16);
+        return [[ls subarrayWithRange:NSMakeRange(ls.count - n, n)] componentsJoinedByString:@"\n"];
+    }
+    NSArray<NSString *> *t = YBLogTail(8);
     return t ? [t componentsJoinedByString:@"\n"] : @"";
 }
 
