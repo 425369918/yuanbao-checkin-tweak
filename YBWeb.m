@@ -5,10 +5,14 @@
 
 // 一个 App 里可能同时有好几个 WKWebView：
 //   · 顶部轮播/广告位（"规则 / AI精讲 / 思路没搞懂" 这种）
-//   · 福利中心正文（"元宝能力站 / 已打卡 / 每日任务 / 兑换商城"）
+//   · 福利中心正文（"元宝能力站 / 已打卡 / 每日任务 / 去邀请"）
 // 只取第一个会抓错，所以这里把全部列出来，再按"正文关键词 + 面积"挑出对的那个。
 
+static NSString * const kYBWebTextJS = @"(function(){try{return (document.body.innerText||'').slice(0,2000);}catch(e){return 'ERR:'+e;}})()";
+
 @implementation YBWeb
+
++ (void)resetCache { /* 预留：目前不缓存，避免页面跳转后拿到失效指针 */ }
 
 + (NSArray<UIView *> *)webViews {
     if ([NSThread isMainThread]) return [self webViewsOnMain];
@@ -81,19 +85,17 @@
     return result;
 }
 
-static NSString * const kYBWebTextJS = @"(function(){try{return (document.body.innerText||'').slice(0,2000);}catch(e){return 'ERR:'+e;}})()";
-
 // 挑"福利中心正文"那个 WebView：正文里得有任务/积分相关字样，否则退化成面积最大的
 + (UIView *)bestWeb {
     NSArray<UIView *> *sorted = [self webViewsByArea];
     if (!sorted.count) return nil;
-    NSArray<NSString *> *marks = @[@"打卡", @"签到", @"积分", @"兑换", @"每日任务", @"奖品", @"福利"];
+    NSArray<NSString *> *marks = @[@"每日任务", @"打卡", @"签到", @"去邀请", @"积分", @"兑换"];
     for (UIView *v in sorted) {
         NSString *t = [self syncJS:kYBWebTextJS in:(WKWebView *)v];
         if (!t.length) continue;
         for (NSString *m in marks) {
             if ([t containsString:m]) {
-                YBLogSync(@"[H5] 选中正文 %@（命中关键词「%@」）", NSStringFromClass(v.class), m);
+                YBLogSync(@"[H5] 选中正文 %.0fx%.0f（命中「%@」）", v.bounds.size.width, v.bounds.size.height, m);
                 return v;
             }
         }
@@ -105,6 +107,79 @@ static NSString * const kYBWebTextJS = @"(function(){try{return (document.body.i
 + (NSString *)textOfFirstWeb {
     UIView *v = [self bestWeb];
     return v ? [self syncJS:kYBWebTextJS in:(WKWebView *)v] : nil;
+}
+
+// 扫"像按钮"的元素：文字短、有尺寸、显示着
+static NSString * const kYBWebBtnJS =
+ @"(function(){try{var all=document.querySelectorAll('*');var out=[];var n=0;"
+  "for(var i=0;i<all.length;i++){var e=all[i];var t=(e.innerText||'').trim();"
+  "if(!t||t.length>14)continue;var r=e.getBoundingClientRect();"
+  "if(r.width<24||r.height<12)continue;if(r.bottom<0||r.top>2000)continue;"
+  "out.push(t);if(++n>=30)break;}return out.join(' | ');}catch(e){return 'ERR:'+e;}})()";
+
+// 点按钮：先找"文字完全等于关键词"的（最准），找不到再退化成"包含"匹配，
+// 都会挑面积最小的那个（最深/最精确的元素）；click 不生效时补发 touchstart/touchend。
+// 注意排除「已打卡 / 已完成 / 距结束…」这类"状态文字"，它们不是按钮。
+static NSString * const kYBWebClickJS =
+ @"(function(keys){try{var all=document.querySelectorAll('*');"
+  "var ex=null,ea=1e9,ext='',co=null,ca=1e9,cot='';"
+  "var bad=['已打卡','已完成','距结束','个新用户','领取过','明天再来'];"
+  "for(var i=0;i<all.length;i++){var e=all[i];var t=(e.innerText||'').trim();"
+  "if(!t||t.length>16)continue;var r=e.getBoundingClientRect();"
+  "if(r.width<24||r.height<12)continue;"
+  "for(var b=0;b<bad.length;b++){if(t.indexOf(bad[b])>=0){t='';break;}}"
+  "if(!t)continue;"
+  "var a=r.width*r.height;"
+  "for(var k=0;k<keys.length;k++){var key=keys[k];"
+  "if(t===key){if(a<ea){ea=a;ex=e;ext=t;}break;}"
+  "if(t.indexOf(key)>=0){if(a<ca){ca=a;co=e;cot=t;}}}}"
+  "var best=ex||co;var bt=ex?ext:cot;"
+  "if(!best)return 'notfound';var rr=best.getBoundingClientRect();"
+  "var x=rr.left+rr.width/2,y=rr.top+rr.height/2;"
+  "try{best.click();}catch(e){}"
+  "try{var ev=function(n){var t=new Touch({identifier:1,target:best,clientX:x,clientY:y});"
+  "best.dispatchEvent(new TouchEvent(n,{bubbles:true,cancelable:true,touches:n=='touchend'?[]:[t],"
+  "targetTouches:n=='touchend'?[]:[t],changedTouches:[t]}));};"
+  "ev('touchstart');ev('touchend');}catch(e2){}"
+  "return (ex?'exact:':'fuzzy:')+bt.slice(0,14)+'@'+Math.round(x)+','+Math.round(y);"
+  "}catch(err){return 'ERR:'+err;}})";
+
++ (NSString *)jsArgsFromKeys:(NSArray<NSString *> *)keys {
+    NSMutableArray *q = [NSMutableArray array];
+    for (NSString *k in keys) {
+        NSString *e = [k stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+        e = [e stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+        e = [e stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+        [q addObject:[NSString stringWithFormat:@"\"%@\"", e]];
+    }
+    return [NSString stringWithFormat:@"[%@]", [q componentsJoinedByString:@","]];
+}
+
++ (BOOL)clickContaining:(NSArray<NSString *> *)keys in:(UIView *)wv {
+    if (!wv || !keys.count) return NO;
+    NSString *js = [NSString stringWithFormat:@"%@(%@)", kYBWebClickJS, [self jsArgsFromKeys:keys]];
+    YBLogSync(@"[H5] 试「%@」", YBJoinKeys(keys));
+    NSString *r = [self syncJS:js in:(WKWebView *)wv];
+    YBLogSync(@"[H5] -> %@", r ?: @"(无返回)");
+    if (!r || [r hasPrefix:@"ERR"] || [r isEqualToString:@"notfound"]) return NO;
+    [NSThread sleepForTimeInterval:1.2];
+    return YES;
+}
+
++ (void)logClickables {
+    UIView *best = [self bestWeb];
+    if (!best) { YBLogSync(@"[H5] 没有 WebView，列不出按钮"); return; }
+    NSString *r = [self syncJS:kYBWebBtnJS in:(WKWebView *)best];
+    if (!r.length) { YBLogSync(@"[H5可点] (空)"); return; }
+    NSArray *parts = [r componentsSeparatedByString:@" | "];
+    NSMutableString *line = [NSMutableString string];
+    NSInteger n = 0;
+    for (NSString *p in parts) {
+        if (n == 5) { YBLogSync(@"[H5可点] %@", line); [line setString:@""]; n = 0; }
+        [line appendFormat:@"%@ | ", p];
+        n++;
+    }
+    if (line.length) YBLogSync(@"[H5可点] %@", line);
 }
 
 + (void)logSummary {
@@ -140,62 +215,24 @@ static NSString * const kYBWebTextJS = @"(function(){try{return (document.body.i
         NSUInteger l = MIN((NSUInteger)60, cut.length - i);
         YBLogSync(@"[H5正文] %@", [cut substringWithRange:NSMakeRange(i, l)]);
     }
-
-    NSString *jsBtn = @"(function(){try{var q=document.querySelectorAll('button,a,div[role=button],span,div');var out=[];var n=0;for(var i=0;i<q.length;i++){var e=q[i];var t=(e.innerText||'').trim();if(!t||t.length>12)continue;var r=e.getBoundingClientRect();if(r.width<20||r.height<10)continue;out.push(t);if(++n>=40)break;}return out.join(' | ');}catch(e){return 'ERR:'+e;}})()";
-    NSString *btns = [self syncJS:jsBtn in:(WKWebView *)best];
-    YBLogSync(@"[H5可点] %@", btns.length ? btns : @"(空)");
 }
 
 + (NSString *)textSignature {
     NSString *t = [self textOfFirstWeb];
     if (!t) return @"(无)";
-    return [NSString stringWithFormat:@"%lu/%lu", (unsigned long)t.length, (unsigned long)t.hash];
+    return [NSString stringWithFormat:@"%lu", (unsigned long)t.length];
 }
 
 + (BOOL)tapText:(NSArray<NSString *> *)keys {
     NSArray<UIView *> *sorted = [self webViewsByArea];
     if (!sorted.count) { YBLogSync(@"[H5] 没有 WebView，跳过"); return NO; }
-
-    NSMutableArray *quoted = [NSMutableArray array];
-    for (NSString *k in keys) {
-        NSString *esc = [k stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-        esc = [esc stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
-        esc = [esc stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
-        [quoted addObject:[NSString stringWithFormat:@"\"%@\"", esc]];
-    }
-    NSString *jsKeys = [quoted componentsJoinedByString:@","];
-
-    NSString *js = [NSString stringWithFormat:
-        @"(function(keys){try{"
-         "var all=document.querySelectorAll('*');"
-         "for(var i=0;i<keys.length;i++){var k=keys[i];"
-         " for(var j=0;j<all.length;j++){var e=all[j];"
-         "  var t=(e.innerText||e.textContent||'').trim();if(!t)continue;"
-         "  if(t===k||(t.indexOf(k)===0&&t.length<=k.length+6)){"
-         "   var r=e.getBoundingClientRect();if(r.width<10||r.height<8)continue;"
-         "   var tag=e.tagName;"
-         "   e.click();"
-         "   return 'clicked:'+t.slice(0,16)+'|'+tag+'|'+Math.round(r.left)+','+Math.round(r.top);"
-         "  }}}"
-         "return 'notfound';}catch(err){return 'ERR:'+err;}})([%@])", jsKeys];
-
-    // 先在"福利中心正文"那个里点；没点着就挨个再试（多 WebView 场景）
     UIView *best = [self bestWeb];
     NSMutableArray<UIView *> *order = [NSMutableArray array];
     if (best) [order addObject:best];
     for (UIView *v in sorted) if (v != best) [order addObject:v];
 
-    NSString *before = [self textSignature];
     for (UIView *v in order) {
-        NSString *r = [self syncJS:js in:(WKWebView *)v];
-        YBLogSync(@"[H5] 在 %@x%.0f 里点「%@」-> %@", NSStringFromClass(v.class),
-                  v.bounds.size.width, YBJoinKeys(keys), r ?: @"(无返回)");
-        if (!r || [r hasPrefix:@"ERR"] || [r isEqualToString:@"notfound"]) continue;
-        [NSThread sleepForTimeInterval:1.0];
-        NSString *after = [self textSignature];
-        BOOL changed = ![after isEqualToString:before];
-        YBLogSync(@"[H5] 正文指纹 %@ -> %@ %@", before, after, changed ? @"（已变）" : @"（没变）");
-        return changed;
+        if ([self clickContaining:keys in:v]) return YES;
     }
     return NO;
 }

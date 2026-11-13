@@ -10,6 +10,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSArray<UIView *> *)webViewsOnMain;                 // 同上，但要求在主线程调用
 + (NSArray<UIView *> *)webViewsByArea;                 // 同上，按屏幕面积从大到小排
 + (UIView *)bestWeb;                                   // 挑"正文那个"（按任务关键词，其次按面积）
++ (void)resetCache;                                    // 清掉上面那个缓存（每次跑任务前调用）
++ (void)logClickables;                                 // 把页面上所有"像按钮"的文字打出来
++ (BOOL)clickContaining:(NSArray<NSString *> *)keys in:(UIView *)wv;  // 在指定 WebView 里按文字点（含子串匹配）
 + (void)logSummary;                                    // 打日志：找到几个、正文前 400 字、可点元素清单
 + (NSString *)textOfFirstWeb;                          // 第一个 WebView 的正文（失败返回 nil）
 + (BOOL)tapText:(NSArray<NSString *> *)keys;           // 在 H5 里按文字点元素（点完校验正文变化）

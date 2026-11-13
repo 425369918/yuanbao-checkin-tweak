@@ -286,6 +286,12 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     for (NSString *t in [self dumpTextsNow])
         for (NSString *k in keys)
             if (k.length && [t containsString:k]) return YES;
+    // 福利中心页面的字全在 H5 里，UIKit 只有「返回」，所以还要看一份 H5 正文
+    NSString *web = [YBWeb textOfFirstWeb];
+    if (web.length) {
+        for (NSString *k in keys)
+            if (k.length && [web containsString:k]) return YES;
+    }
     return NO;
 }
 
@@ -321,45 +327,68 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
             YBLogSync(@"[打卡] 点「福利中心」-> %@", ok ? @"已触发" : @"没找到");
             [NSThread sleepForTimeInterval:2.0];
         }
-        [self logTexts:[self dumpTextsNow] tag:@"打卡"];
+        YBLogSync(@"[打卡] 福利中心页面文字 %lu 条（UIKit 里通常只有「返回」）",
+                  (unsigned long)[self dumpTextsNow].count);
 
         // 1.5) 这个页面如果是 H5，就走 WebView 通道（UIKit 里只有个「返回」，读不到正文）
         YBSetTrace("auto:1b 判断H5");
-        [YBWeb logSummary];
         NSArray<UIView *> *wvs = [YBWeb webViews];
         BOOL isH5 = wvs.count > 0;
-        YBLogSync(@"[打卡] H5 通道: %@", isH5 ? @"开启" : @"关闭（走原生视图树）");
+        YBLogSync(@"[打卡] 页面 WebView %lu 个 -> H5 通道: %@", (unsigned long)wvs.count,
+                  isH5 ? @"开启" : @"关闭（走原生视图树）");
 
-        // 2) 按锚点依次尝试：签到 / 打卡 / 领奖励 / 弹窗确认
-        NSArray<NSString *> *anchors = @[
-            @"签到", @"打卡", @"立即签到", @"签到领积分",
-            @"领取", @"开心收下", @"收下", @"立即领取", @"查看奖励",
-            @"确定", @"知道了",
-        ];
+        // 2) H5：按页面上"真实按钮文字"点（签到 / 打卡 / 领奖 / 去邀请）
         NSInteger hitCount = 0;
-        for (NSString *a in anchors) {
-            if (self.stopRequested) break;
-            YBSetTrace("auto:3 试锚点");
-            BOOL ok = NO;
-            if (isH5) ok = [YBWeb tapText:@[a]];
-            else      ok = [self onMain:^BOOL{ return [YBTouch tapText:@[a] ]; }];
-            YBLogSync(@"[打卡] 锚点「%@」-> %@", a, ok ? @"已触发" : @"无此文字/没生效");
-            if (ok) { hitCount++; [NSThread sleepForTimeInterval:1.2]; }
+        if (isH5) {
+            YBSetTrace("auto:2 列按钮");
+            [YBWeb logClickables];
+            NSArray<NSArray *> *groups = @[
+                @[@"立即打卡", @"打卡", @"立即签到", @"签到领积分", @"签到"],
+                @[@"开心收下", @"收下", @"立即领取", @"领取", @"查看奖励"],
+                @[@"确定", @"知道了", @"我知道了", @"开心收下"],
+                @[@"去邀请", @"邀请"],
+            ];
+            for (NSArray *g in groups) {
+                if (self.stopRequested) break;
+                YBSetTrace("auto:3 试按钮");
+                BOOL ok = [YBWeb tapText:g];
+                YBLogSync(@"[打卡] 「%@」-> %@", YBJoinKeys(g), ok ? @"已点" : @"没有这个按钮");
+                if (ok) { hitCount++; [NSThread sleepForTimeInterval:1.2]; }
+            }
+            YBLogSync(@"[打卡] 本轮点中 %ld 组", (long)hitCount);
+            YBSetTrace("auto:3b 复查");
+            NSString *t2 = [YBWeb textOfFirstWeb];
+            NSString *flat = [[t2 stringByReplacingOccurrencesOfString:@"\n" withString:@" "] ?: @"" copy];
+            YBLogSync(@"[打卡] 复查正文 %lu 字: %@", (unsigned long)flat.length,
+                      flat.length ? [flat substringToIndex:MIN(flat.length, (NSUInteger)220)] : @"(读不到)");
+        } else {
+            // 原生页面：退回按文字找 UIView
+            NSArray<NSString *> *anchors = @[
+                @"签到", @"打卡", @"立即签到", @"签到领积分",
+                @"领取", @"开心收下", @"收下", @"立即领取", @"查看奖励",
+                @"确定", @"知道了",
+            ];
+            for (NSString *a in anchors) {
+                if (self.stopRequested) break;
+                YBSetTrace("auto:3 试锚点");
+                BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[a] ]; }];
+                YBLogSync(@"[打卡] 锚点「%@」-> %@", a, ok ? @"已触发" : @"无此文字/没生效");
+                if (ok) { hitCount++; [NSThread sleepForTimeInterval:1.2]; }
+            }
+            YBLogSync(@"[打卡] 本轮命中 %ld 个锚点", (long)hitCount);
         }
-        YBLogSync(@"[打卡] 本轮命中 %ld 个锚点", (long)hitCount);
 
-        // 3) 收尾再打一次页面文字，确认结果
+        // 3) 收尾：把最终正文打出来（能直接看出「已打卡N天」变没变）
         YBSetTrace("auto:4 收尾");
         if (isH5) {
             NSString *t = [YBWeb textOfFirstWeb];
-            if (t.length) {
-                YBLogSync(@"[打卡完成] H5 正文 %lu 字: %@", (unsigned long)t.length,
-                          [t substringToIndex:MIN(t.length, (NSUInteger)300)]);
-            } else {
-                YBLogSync(@"[打卡完成] 读不到 H5 正文");
-            }
+            NSString *flat = [[t stringByReplacingOccurrencesOfString:@"\n" withString:@" "] ?: @"" copy];
+            NSLog(@"[YB] 收尾正文 %lu 字", (unsigned long)flat.length);
+            YBLogSync(@"[打卡完成] 最终正文 %lu 字: %@", (unsigned long)flat.length,
+                      flat.length ? [flat substringToIndex:MIN(flat.length, (NSUInteger)200)] : @"(读不到)");
+        } else {
+            [self logTexts:[self dumpTextsNow] tag:@"打卡完成"];
         }
-        [self logTexts:[self dumpTextsNow] tag:@"打卡完成"];
         YBSetTrace("auto:done");
         YBLogSync(@"===== 自动打卡结束 =====");
         [self setRunning:NO];
