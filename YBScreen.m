@@ -98,7 +98,6 @@ static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
 - (void)runOCR {
     CGImageRef cg = self.image.CGImage;
     if (!cg) { YBLogSync(@"[OCR] 没有图像，跳过"); self.lines = @[]; return; }
-    NSMutableArray *out = [NSMutableArray array];
     // 注意：UIImage.size 已是「点」，OCR 坐标要按「像素」换算后再除以 scale
     CGSize px = CGSizeMake(CGImageGetWidth(cg), CGImageGetHeight(cg));
     // 只用 capture() 里在主线程算好的 scale，避免在后台线程碰 UIScreen
@@ -108,36 +107,63 @@ static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
 
     NSTimeInterval t0 = [NSDate date].timeIntervalSince1970;
 
-    VNImageRequestHandler *h = [[VNImageRequestHandler alloc] initWithCGImage:cg options:@{}];
-    VNRecognizeTextRequest *req = [[VNRecognizeTextRequest alloc] init];
-    req.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
-    req.usesLanguageCorrection = NO;                  // 关掉语言纠错：省 CPU/内存，中文照样能认
-    req.recognitionLanguages = @[@"zh-Hans", @"zh-Hant", @"en-US"];
-    if (@available(iOS 16.0, *)) req.revision = VNRecognizeTextRequestRevision3;   // 更准的中文模型
-
-    NSError *err = nil;
+    // 先把画面重画成一张"普通位图"再交给 Vision：
+    // 系统截屏拿到的图可能挂在 IOSurface 上，直接喂 Vision 有崩溃风险。
+    YBSetTrace("ocr:2 规范化位图");
+    CGImageRef plain = NULL;
     @try {
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(px.width, px.height), NO, 1.0);
+        [[UIImage imageWithCGImage:cg] drawInRect:CGRectMake(0, 0, px.width, px.height)];
+        UIImage *p2 = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        if (p2.CGImage) plain = CGImageRetain(p2.CGImage);
+    } @catch (NSException *e) {
+        YBLogSync(@"[OCR] 位图化异常: %@", e.reason);
+    }
+    if (!plain) { YBLogSync(@"[OCR] 位图化失败，跳过"); self.lines = @[]; return; }
+    YBLogSync(@"[OCR] 位图就绪");
+
+    NSMutableArray *out = [NSMutableArray array];
+    YBSetTrace("ocr:3 跑识别");
+    @try {
+        VNImageRequestHandler *h = [[VNImageRequestHandler alloc] initWithCGImage:plain options:@{}];
+        VNRecognizeTextRequest *req = [[VNRecognizeTextRequest alloc] init];
+        req.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+        req.usesLanguageCorrection = NO;                 // 关掉语言纠错：省 CPU/内存，中文照样能认
+        // 语言和 revision 都可能抛异常（不同系统版本支持的集合不一样），逐个兜住
+        @try { req.recognitionLanguages = @[@"zh-Hans", @"en-US"]; }
+        @catch (NSException *e) { YBLogSync(@"[OCR] 设语言失败: %@", e.reason); }
+        if (@available(iOS 16.0, *)) {
+            @try { req.revision = VNRecognizeTextRequestRevision3; }
+            @catch (NSException *e) { YBLogSync(@"[OCR] 设 revision=3 失败: %@", e.reason); }
+        }
+
+        NSError *err = nil;
         if (![h performRequests:@[req] error:&err]) {
-            YBLogSync(@"[OCR] 失败: %@", err.localizedDescription);
-            self.lines = @[]; return;
+            YBLogSync(@"[OCR] 识别失败: %@", err.localizedDescription);
+            CGImageRelease(plain);
+            self.lines = @[];
+            return;
+        }
+        for (VNRecognizedTextObservation *o in req.results) {
+            @try {
+                VNRecognizedText *t = [[o topCandidates:1] firstObject];
+                if (!t.string.length) continue;
+                CGRect bb = o.boundingBox; // 归一化，左下原点
+                CGRect r = CGRectMake(bb.origin.x * px.width,
+                                      (1.0 - bb.origin.y - bb.size.height) * px.height,
+                                      bb.size.width * px.width,
+                                      bb.size.height * px.height);
+                CGRect pr = CGRectMake(r.origin.x / sc, r.origin.y / sc,
+                                       r.size.width / sc, r.size.height / sc);
+                [out addObject:@{@"text": t.string, @"rect": [NSValue valueWithCGRect:pr], @"conf": @(t.confidence)}];
+            } @catch (NSException *e) { }
         }
     } @catch (NSException *e) {
-        YBLogSync(@"[OCR] 异常: %@", e.reason);
-        self.lines = @[]; return;
+        YBLogSync(@"[OCR] 异常: %@ %@", e.name, e.reason);
     }
-    for (VNRecognizedTextObservation *o in req.results) {
-        VNRecognizedText *t = [[o topCandidates:1] firstObject];
-        if (!t.string.length) continue;
-        CGRect bb = o.boundingBox; // 归一化，左下原点
-        CGRect r = CGRectMake(bb.origin.x * px.width,
-                              (1.0 - bb.origin.y - bb.size.height) * px.height,
-                              bb.size.width * px.width,
-                              bb.size.height * px.height);
-        // 转到逻辑点坐标
-        CGRect pr = CGRectMake(r.origin.x / sc, r.origin.y / sc,
-                               r.size.width / sc, r.size.height / sc);
-        [out addObject:@{@"text": t.string, @"rect": [NSValue valueWithCGRect:pr], @"conf": @(t.confidence)}];
-    }
+    if (plain) CGImageRelease(plain);
+
     self.lines = out;
     YBSetTrace("ocr:done");
     YBLogSync(@"[OCR] %lu 行，用时 %.1fs (屏幕 %.0fx%.0f pt)", (unsigned long)out.count,

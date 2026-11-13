@@ -275,6 +275,23 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     });
 }
 
+// 自检 D：只取视图树文字，完全不碰截图和 OCR
+- (void)testTextTree {
+    if (self.running) { YBLogSync(@"[自检D] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检D 开始（只取视图树文字） =====");
+        YBSetTrace("D:1 遍历视图树");
+        __block NSArray<NSString *> *texts = nil;
+        [self onMainVoid:^{ texts = [YBTouch dumpVisibleTexts]; }];
+        NSMutableArray *pick = [NSMutableArray array];
+        for (NSString *t in texts) { if (pick.count >= 30) break; [pick addObject:t]; }
+        YBLogSync(@"[自检D] 视图树文字 %lu 条: %@", (unsigned long)texts.count,
+                  pick.count ? [pick componentsJoinedByString:@" / "] : @"(0 条 —— 界面是自绘的，只能靠 OCR)");
+        YBSetTrace("D:done");
+        YBLogSync(@"===== 自检D 结束 =====");
+    });
+}
+
 // 自检 C：截图 + OCR + 找福利中心 + 点一下
 - (void)selfTest {
     if (self.running) { YBLogSync(@"[自检C] 已有任务在跑"); return; }

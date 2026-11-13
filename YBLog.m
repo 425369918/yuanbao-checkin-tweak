@@ -199,8 +199,9 @@ BOOL YBLastRunUnfinished(void) {
     for (NSString *l in slice) {
         if ([l containsString:@"[信号崩溃]"]) crash = YES;
         if ([l containsString:@"[崩溃] "])     crash = YES;
-        if ([l containsString:@"===== 自检开始"] || [l containsString:@"===== 开始，任务"]) began = YES;
-        if ([l containsString:@"===== 自检结束"] || [l containsString:@"===== 全部结束"]) ended = YES;
+        // 自检 A/B/C/D 和完整任务都算"开始了"
+        if ([l containsString:@"===== "] && [l containsString:@"开始"]) began = YES;
+        if ([l containsString:@"===== "] && [l containsString:@"结束"]) ended = YES;
     }
     if (crash) return YES;
     return began && !ended;          // 开始了但没结束：被系统 SIGKILL 杀掉也是这种形态

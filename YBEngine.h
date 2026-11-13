@@ -26,5 +26,6 @@ extern NSString *const YBEngineRunStateChanged; // userInfo["running"] = @(BOOL)
 - (void)selfTest;
 - (void)testCapture;   // 只截图
 - (void)testOCR;       // 截图 + OCR
+- (void)testTextTree;  // 只取视图树里的文字（判断能不能完全不依赖 OCR）
 @end
 NS_ASSUME_NONNULL_END

@@ -214,7 +214,7 @@ static NSString *YBExtractText(UIView *v) {
         return;
     }
     CGFloat w = MIN(MAX(win.bounds.size.width - 40, 240), 340);
-    CGFloat h = 330;
+    CGFloat h = 362;
     CGRect f = CGRectMake((win.bounds.size.width - w) / 2, (win.bounds.size.height - h) / 2, w, h);
 
     UIView *p = [[UIView alloc] initWithFrame:f];
@@ -253,13 +253,17 @@ static NSString *YBExtractText(UIView *v) {
     stC.frame = CGRectMake(14, 106, w - 28, 28);
     [p addSubview:stC];
 
+    UIButton *stD = [self mkButton:@"D 只取视图树文字（不截图不OCR）" color:[UIColor colorWithRed:0.20 green:0.32 blue:0.52 alpha:1] action:@selector(testTextTree)];
+    stD.frame = CGRectMake(14, 138, w - 28, 28);
+    [p addSubview:stD];
+
     UIButton *cl = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
-    cl.frame = CGRectMake(14, 138, w - 28, 26);
+    cl.frame = CGRectMake(14, 170, w - 28, 26);
     [p addSubview:cl];
     YBLogSync(@"[面板] 5 按钮全部 OK");
 
-    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 168, w - 28, 116)];
-    lg.numberOfLines = 18;
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 200, w - 28, 122)];
+    lg.numberOfLines = 19;
     lg.font = [UIFont systemFontOfSize:7.5];
     lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
     lg.text = [self logText];
@@ -318,6 +322,7 @@ static NSString *YBExtractText(UIView *v) {
 - (void)selfTest { [[YBEngine shared] selfTest]; }
 - (void)testCapture { [[YBEngine shared] testCapture]; }
 - (void)testOCR { [[YBEngine shared] testOCR]; }
+- (void)testTextTree { [[YBEngine shared] testTextTree]; }
 
 - (void)stopRun { [[YBEngine shared] stop]; }
 
