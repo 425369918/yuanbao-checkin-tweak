@@ -420,8 +420,7 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
 // 无障碍元素里的文字。
 // 为什么单独做这条：SwiftUI / Flutter 这类"自绘"页面，屏幕上明明有字，
 // 但 UIView 层级里一个 UILabel 都没有 —— 字全在 accessibilityElements 里。
-+ (NSArray<NSString *> *)dumpAccessibilityTexts {
-    NSMutableArray<NSString *> *out = [NSMutableArray array];
++ (NSArray<NSString *> *)dumpAccessibilityTexts {    NSMutableArray<NSString *> *out = [NSMutableArray array];
     NSUInteger visits = 0;
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
     for (UIWindow *w in [self appWindows]) {

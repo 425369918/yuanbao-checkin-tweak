@@ -182,6 +182,25 @@ static NSString * const kYBWebClickJS =
     if (line.length) YBLogSync(@"[H5可点] %@", line);
 }
 
++ (NSArray<NSString *> *)textAround:(NSString *)key span:(NSInteger)span {
+    NSString *t = [self textOfFirstWeb];
+    if (!t.length || !key.length) return @[];
+    NSString *flat = [t stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+    NSMutableArray *out = [NSMutableArray array];
+    NSRange search = NSMakeRange(0, flat.length);
+    while (search.length) {
+        NSRange r = [flat rangeOfString:key options:0 range:search];
+        if (r.location == NSNotFound) break;
+        NSUInteger from = (r.location >= (NSUInteger)span) ? r.location - (NSUInteger)span : 0;
+        NSUInteger to = MIN(flat.length, NSMaxRange(r) + (NSUInteger)span);
+        [out addObject:[flat substringWithRange:NSMakeRange(from, to - from)]];
+        NSUInteger next = NSMaxRange(r);
+        if (next >= flat.length) break;
+        search = NSMakeRange(next, flat.length - next);
+    }
+    return out;
+}
+
 + (void)logSummary {
     NSArray<UIWindow *> *wins = [YBTouch appWindows];
     YBLogSync(@"[H5] App 窗口 %lu 个", (unsigned long)wins.count);

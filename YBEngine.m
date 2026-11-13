@@ -346,7 +346,6 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
                 @[@"立即打卡", @"打卡", @"立即签到", @"签到领积分", @"签到"],
                 @[@"开心收下", @"收下", @"立即领取", @"领取", @"查看奖励"],
                 @[@"确定", @"知道了", @"我知道了", @"开心收下"],
-                @[@"去邀请", @"邀请"],
             ];
             for (NSArray *g in groups) {
                 if (self.stopRequested) break;
@@ -355,7 +354,11 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
                 YBLogSync(@"[打卡] 「%@」-> %@", YBJoinKeys(g), ok ? @"已点" : @"没有这个按钮");
                 if (ok) { hitCount++; [NSThread sleepForTimeInterval:1.2]; }
             }
-            YBLogSync(@"[打卡] 本轮点中 %ld 组", (long)hitCount);
+            YBLogSync(@"[打卡] 本轮点中 %ld 组（邀请类任务按你的要求不做）", (long)hitCount);
+
+            // 签到结果：把「已打卡 N 天」这段单独抓出来，一眼看天数变没变
+            NSArray *stat = [YBWeb textAround:@"已打卡" span:14];
+            YBLogSync(@"[签到状态] %@", stat.count ? YBJoinKeys(stat) : @"读不到「已打卡」");
             YBSetTrace("auto:3b 复查");
             NSString *t2 = [YBWeb textOfFirstWeb];
             NSString *flat = [[t2 stringByReplacingOccurrencesOfString:@"\n" withString:@" "] ?: @"" copy];

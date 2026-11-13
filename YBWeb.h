@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)resetCache;                                    // 清掉上面那个缓存（每次跑任务前调用）
 + (void)logClickables;                                 // 把页面上所有"像按钮"的文字打出来
 + (BOOL)clickContaining:(NSArray<NSString *> *)keys in:(UIView *)wv;  // 在指定 WebView 里按文字点（含子串匹配）
++ (NSArray<NSString *> *)textAround:(NSString *)key span:(NSInteger)span; // 截取关键词附近的原文（看状态变化）
 + (void)logSummary;                                    // 打日志：找到几个、正文前 400 字、可点元素清单
 + (NSString *)textOfFirstWeb;                          // 第一个 WebView 的正文（失败返回 nil）
 + (BOOL)tapText:(NSArray<NSString *> *)keys;           // 在 H5 里按文字点元素（点完校验正文变化）
