@@ -11,12 +11,15 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSArray<UIView *> *)webViewsByArea;                 // 同上，按屏幕面积从大到小排
 + (UIView *)bestWeb;                                   // 挑"正文那个"（按任务关键词，其次按面积）
 + (void)resetCache;                                    // 清掉上面那个缓存（每次跑任务前调用）
++ (void)setQuiet:(BOOL)q;                              // 静音：点按钮期间不再打零碎日志，只留一行结果
++ (NSString *)fullText;                                // 取正文全文（不截断）
 + (void)logClickables;                                 // 把页面上所有"像按钮"的文字打出来
 + (BOOL)clickContaining:(NSArray<NSString *> *)keys in:(UIView *)wv;  // 在指定 WebView 里按文字点（含子串匹配）
 + (NSArray<NSString *> *)textAround:(NSString *)key span:(NSInteger)span; // 截取关键词附近的原文（看状态变化）
 + (void)logSummary;                                    // 打日志：找到几个、正文前 400 字、可点元素清单
 + (NSString *)textOfFirstWeb;                          // 第一个 WebView 的正文（失败返回 nil）
 + (BOOL)tapText:(NSArray<NSString *> *)keys;           // 在 H5 里按文字点元素（点完校验正文变化）
++ (NSString *)tapTextVerbose:(NSArray<NSString *> *)keys; // 同上，但返回一行结果（exact:打卡@x,y / notfound）
 + (NSString *)textSignature;                            // 正文指纹（判断点击有没有生效）
 @end
 NS_ASSUME_NONNULL_END

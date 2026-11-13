@@ -214,7 +214,7 @@ static NSString *YBExtractText(UIView *v) {
         return;
     }
     CGFloat w = MIN(MAX(win.bounds.size.width - 40, 240), 340);
-    CGFloat h = 324;
+    CGFloat h = 424;
     CGRect f = CGRectMake((win.bounds.size.width - w) / 2, (win.bounds.size.height - h) / 2, w, h);
 
     UIView *p = [[UIView alloc] initWithFrame:f];
@@ -258,8 +258,8 @@ static NSString *YBExtractText(UIView *v) {
     [p addSubview:cl];
     YBLogSync(@"[面板] 5 按钮全部 OK");
 
-    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 187, w - 28, 122)];
-    lg.numberOfLines = 18;
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 187, w - 28, 222)];
+    lg.numberOfLines = 30;
     lg.font = [UIFont systemFontOfSize:7.5];
     lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
     lg.text = [self logText];

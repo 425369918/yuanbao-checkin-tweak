@@ -10,7 +10,17 @@
 
 static NSString * const kYBWebTextJS = @"(function(){try{return (document.body.innerText||'').slice(0,2000);}catch(e){return 'ERR:'+e;}})()";
 
+static BOOL gYBWebQuiet = NO;   // 点按钮期间静音，免得零碎日志把关键结果挤出面板
+
 @implementation YBWeb
+
++ (void)setQuiet:(BOOL)q { gYBWebQuiet = q; }
+
++ (NSString *)fullText {
+    UIView *v = [self bestWeb];
+    if (!v) return nil;
+    return [self syncJS:kYBWebTextJS in:(WKWebView *)v];
+}
 
 + (void)resetCache { /* 预留：目前不缓存，避免页面跳转后拿到失效指针 */ }
 
@@ -95,12 +105,12 @@ static NSString * const kYBWebTextJS = @"(function(){try{return (document.body.i
         if (!t.length) continue;
         for (NSString *m in marks) {
             if ([t containsString:m]) {
-                YBLogSync(@"[H5] 选中正文 %.0fx%.0f（命中「%@」）", v.bounds.size.width, v.bounds.size.height, m);
+                if (!gYBWebQuiet) YBLogSync(@"[H5] 选中正文 %.0fx%.0f（命中「%@」）", v.bounds.size.width, v.bounds.size.height, m);
                 return v;
             }
         }
     }
-    YBLogSync(@"[H5] 没有 WebView 命中任务关键词，退回面积最大的那个");
+    if (!gYBWebQuiet) YBLogSync(@"[H5] 没有 WebView 命中任务关键词，退回面积最大的那个");
     return sorted.firstObject;
 }
 
@@ -158,9 +168,9 @@ static NSString * const kYBWebClickJS =
 + (BOOL)clickContaining:(NSArray<NSString *> *)keys in:(UIView *)wv {
     if (!wv || !keys.count) return NO;
     NSString *js = [NSString stringWithFormat:@"%@(%@)", kYBWebClickJS, [self jsArgsFromKeys:keys]];
-    YBLogSync(@"[H5] 试「%@」", YBJoinKeys(keys));
+    if (!gYBWebQuiet) YBLogSync(@"[H5] 试「%@」", YBJoinKeys(keys));
     NSString *r = [self syncJS:js in:(WKWebView *)wv];
-    YBLogSync(@"[H5] -> %@", r ?: @"(无返回)");
+    if (!gYBWebQuiet) YBLogSync(@"[H5] -> %@", r ?: @"(无返回)");
     if (!r || [r hasPrefix:@"ERR"] || [r isEqualToString:@"notfound"]) return NO;
     [NSThread sleepForTimeInterval:1.2];
     return YES;
@@ -242,18 +252,31 @@ static NSString * const kYBWebClickJS =
     return [NSString stringWithFormat:@"%lu", (unsigned long)t.length];
 }
 
-+ (BOOL)tapText:(NSArray<NSString *> *)keys {
++ (NSString *)tapTextVerbose:(NSArray<NSString *> *)keys {
     NSArray<UIView *> *sorted = [self webViewsByArea];
-    if (!sorted.count) { YBLogSync(@"[H5] 没有 WebView，跳过"); return NO; }
+    if (!sorted.count) return @"no-webview";
     UIView *best = [self bestWeb];
     NSMutableArray<UIView *> *order = [NSMutableArray array];
     if (best) [order addObject:best];
     for (UIView *v in sorted) if (v != best) [order addObject:v];
 
+    NSString *js = [NSString stringWithFormat:@"%@(%@)", kYBWebClickJS, [self jsArgsFromKeys:keys]];
+    NSString *last = @"notfound";
     for (UIView *v in order) {
-        if ([self clickContaining:keys in:v]) return YES;
+        NSString *r = [self syncJS:js in:(WKWebView *)v];
+        if (!r) continue;
+        last = r;
+        if (![r hasPrefix:@"ERR"] && ![r isEqualToString:@"notfound"]) {
+            [NSThread sleepForTimeInterval:1.2];
+            return r;
+        }
     }
-    return NO;
+    return last;
+}
+
++ (BOOL)tapText:(NSArray<NSString *> *)keys {
+    NSString *r = [self tapTextVerbose:keys];
+    return !([r hasPrefix:@"ERR"] || [r isEqualToString:@"notfound"] || [r isEqualToString:@"no-webview"]);
 }
 
 @end
