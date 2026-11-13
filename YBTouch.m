@@ -143,13 +143,18 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
 }
 
 + (id)findViewWithText:(NSArray<NSString *> *)keys {
-    UIView *root = [self keyWindow];
-    if (!root) return nil;
-    __block UIView *found = nil;
-    __block CGFloat bestArea = CGFLOAT_MAX;
+    NSArray<NSDictionary *> *cs = [self textCandidates:keys];
+    return cs.count ? cs.firstObject[@"view"] : nil;
+}
 
-    // 广度优先遍历（含 cell / collectionViewCell 内层）
-    // 限数量 + 限时：这里是主线程，元宝的视图树上万个节点，不能无限跑（否则卡死被系统看门狗杀掉）
+// 找出所有"文字命中"的候选，并且标出它们**到底在不在屏幕上、点不点得着**。
+// 元宝的侧边抽屉（收藏/删除/创建新分组…）一直挂在视图树里但整块在屏幕外，
+// 里面的「福利中心」和底栏的「福利中心」同名 —— 不过滤的话很容易点到屏幕外那个，
+// 结果就是"点了没反应"。这一步就是为此加的。
++ (NSArray<NSDictionary *> *)textCandidates:(NSArray<NSString *> *)keys {
+    UIWindow *root = [self keyWindow];
+    if (!root) return @[];
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
     NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:root];
     NSUInteger visits = 0;
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.2];
@@ -159,20 +164,40 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
         UIView *v = queue.firstObject; [queue removeObjectAtIndex:0];
         if (YBTextMatches(YBViewText(v), keys)) {
             // 优先可交互的祖先
+            UIView *cand = v;
             UIView *cur = v;
-            while (cur && ![cur isKindOfClass:UIControl.class] &&
-                   ![cur isKindOfClass:UITableViewCell.class] &&
-                   ![cur isKindOfClass:UICollectionViewCell.class]) {
-                cur = cur.superview;
+            int d = 0;
+            while (cur && d < 6) {
+                if ([cur isKindOfClass:UIControl.class] ||
+                    [cur isKindOfClass:UITableViewCell.class] ||
+                    [cur isKindOfClass:UICollectionViewCell.class]) { cand = cur; break; }
+                cur = cur.superview; d++;
             }
-            UIView *cand = cur ?: v;
-            CGRect inWin = [cand convertRect:cand.bounds toView:root];
-            CGFloat a = inWin.size.width * inWin.size.height;
-            if (a > 1 && a < bestArea) { bestArea = a; found = cand; }   // 取最小的匹配块
+            CGRect r = [cand convertRect:cand.bounds toView:root];
+            CGFloat area = r.size.width * r.size.height;
+            if (area > 1) {
+                CGRect inter = CGRectIntersection(r, root.bounds);
+                CGFloat ratio = (inter.size.width * inter.size.height) / area;
+                BOOL hitOK = NO;
+                if (ratio > 0.55) {
+                    CGPoint c = CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r));
+                    UIView *hit = [self deepHit:c in:root];
+                    hitOK = (hit == cand) || (hit && [hit isDescendantOfView:cand]);
+                }
+                [out addObject:@{@"view": cand, @"rect": [NSValue valueWithCGRect:r],
+                                 @"area": @(area), @"ratio": @(ratio), @"hit": @(hitOK)}];
+            }
         }
         for (UIView *sub in v.subviews) [queue addObject:sub];
     }
-    return found;
+    return out;
+}
+
+// 当前界面的文字指纹：用来判断"点了之后界面到底变没变"
++ (NSString *)textSignature {
+    NSArray<NSString *> *t = [self dumpVisibleTexts];
+    NSString *j = [t componentsJoinedByString:@"|"];
+    return [NSString stringWithFormat:@"%lu/%lu", (unsigned long)t.count, (unsigned long)j.hash];
 }
 
 + (NSArray<NSString *> *)dumpVisibleTexts {
@@ -313,24 +338,67 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
 }
 
 + (BOOL)tapText:(NSArray<NSString *> *)keys {
-    UIView *v = [self findViewWithText:keys];
-    if (!v) {
-        // 视图树里没有文字（自绘 UI）：走无障碍元素
+    NSArray<NSDictionary *> *cs = [self textCandidates:keys];
+    if (!cs.count) {
+        // 视图树里没有文字（纯自绘 UI）：走无障碍元素
         if ([self tapAccessibilityElement:keys in:[self keyWindow]]) return YES;
         YBLog(@"[点按] 未找到文字 %@", keys);
         return NO;
     }
-    // 先在命中的视图上直接触发（不走坐标，最安全）
-    if ([self activateView:v]) {
-        YBLog(@"[点按] 文字命中 %@ -> 已触发 (%@)", keys, NSStringFromClass(v.class));
-        return YES;
+
+    // 排序：屏幕上能真正命中的优先 → 位于屏幕内的比例高的优先 → 面积小的优先（更接近"按钮"本身）
+    NSArray<NSDictionary *> *sorted = [cs sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        BOOL ha = [a[@"hit"] boolValue], hb = [b[@"hit"] boolValue];
+        if (ha != hb) return ha ? NSOrderedAscending : NSOrderedDescending;
+        double ra = [a[@"ratio"] doubleValue], rb = [b[@"ratio"] doubleValue];
+        if (fabs(ra - rb) > 0.1) return ra > rb ? NSOrderedAscending : NSOrderedDescending;
+        double aa = [a[@"area"] doubleValue], ab = [b[@"area"] doubleValue];
+        if (aa != ab) return aa < ab ? NSOrderedAscending : NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+
+    NSString *before = [self textSignature];
+    NSInteger tries = 0;
+    for (NSDictionary *d in sorted) {
+        if (tries++ >= 3) break;           // 最多试 3 个，防止来回乱点
+        UIView *v = d[@"view"];
+        BOOL trig = [self activateView:v];
+        YBLog(@"[点按] %@ 候选 %@ 屏内=%.2f 可命中=%@ 触发=%@", keys, NSStringFromClass(v.class),
+              [d[@"ratio"] doubleValue], [d[@"hit"] boolValue] ? @"是" : @"否", trig ? @"是" : @"否");
+        if (!trig) continue;
+        [NSThread sleepForTimeInterval:0.9];
+        NSString *after = [self textSignature];
+        if (![after isEqualToString:before]) {
+            YBLog(@"[点按] %@ 界面已变化（%d 号候选），成功", keys, (int)tries);
+            return YES;
+        }
+        YBLog(@"[点按] %@ 界面没变化，换下一个候选", keys);
     }
-    // 直接触发不了，再退到坐标点按
-    UIWindow *win = [self keyWindow];
-    CGRect r = [v convertRect:v.bounds toView:win];
-    CGPoint c = CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r));
-    YBLog(@"[点按] 文字命中 %@ -> %@ (%.0f,%.0f) 改走坐标", keys, NSStringFromClass(v.class), c.x, c.y);
+    // 都不行，最后退到坐标点按（用第一个候选的中心）
+    NSDictionary *d0 = sorted.firstObject;
+    CGRect r0 = [d0[@"rect"] CGRectValue];
+    CGPoint c = CGPointMake(CGRectGetMidX(r0), CGRectGetMidY(r0));
+    YBLog(@"[点按] %@ 所有候选都没生效，最后试坐标 (%.0f,%.0f)", keys, c.x, c.y);
     return [self tapPoint:c];
+}
+
+// 诊断：把「按文字找控件」这一路上每个候选的真实情况打出来（一屏能看完，方便拍面板）
++ (void)diagnoseText:(NSArray<NSString *> *)keys {
+    UIWindow *w = [self keyWindow];
+    YBLog(@"[F] 窗口 %@ 尺寸=%.0fx%.0f", w ? NSStringFromClass(w.class) : @"无",
+          w.bounds.size.width, w.bounds.size.height);
+    NSArray<NSDictionary *> *cs = [self textCandidates:keys];
+    YBLog(@"[F] 文字 %@ 命中 %lu 个候选", keys, (unsigned long)cs.count);
+    NSInteger i = 0;
+    for (NSDictionary *d in cs) {
+        if (++i > 6) break;
+        UIView *v = d[@"view"];
+        CGRect r = [d[@"rect"] CGRectValue];
+        YBLog(@"[F] #%ld %@ 位置=(%.0f,%.0f,%.0fx%.0f) 屏内=%.2f 可命中=%@ 父=%@",
+              (long)i, NSStringFromClass(v.class), r.origin.x, r.origin.y, r.size.width, r.size.height,
+              [d[@"ratio"] doubleValue], [d[@"hit"] boolValue] ? @"是" : @"否",
+              NSStringFromClass(v.superview.class));
+    }
 }
 
 + (BOOL)inputText:(NSString *)text nearKeys:(NSArray<NSString *> *)keys {

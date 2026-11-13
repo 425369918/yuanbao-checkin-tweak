@@ -214,7 +214,7 @@ static NSString *YBExtractText(UIView *v) {
         return;
     }
     CGFloat w = MIN(MAX(win.bounds.size.width - 40, 240), 340);
-    CGFloat h = 340;
+    CGFloat h = 336;
     CGRect f = CGRectMake((win.bounds.size.width - w) / 2, (win.bounds.size.height - h) / 2, w, h);
 
     UIView *p = [[UIView alloc] initWithFrame:f];
@@ -242,25 +242,29 @@ static NSString *YBExtractText(UIView *v) {
     // Vision 的 performRequests 在元宝进程里必崩（已由 A/B 两段实机验证），
     // 所以 OCR 按钮全部撤掉，只留视图树通道的三个按钮。
     UIButton *stE = [self mkButton:@"E 进福利中心 + 打印页面文字" color:[UIColor colorWithRed:0.55 green:0.32 blue:0.10 alpha:1] action:@selector(probeWelfare)];
-    stE.frame = CGRectMake(14, 74, w - 28, 30);
+    stE.frame = CGRectMake(14, 74, w - 28, 28);
     [p addSubview:stE];
 
+    UIButton *stF = [self mkButton:@"F 诊断：福利中心能不能点" color:[UIColor colorWithRed:0.55 green:0.16 blue:0.16 alpha:1] action:@selector(diagnoseWelfare)];
+    stF.frame = CGRectMake(14, 106, w - 28, 28);
+    [p addSubview:stF];
+
     UIButton *stD = [self mkButton:@"D 只取视图树文字" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(testTextTree)];
-    stD.frame = CGRectMake(14, 108, (w - 34) / 2, 28);
+    stD.frame = CGRectMake(14, 138, (w - 34) / 2, 26);
     [p addSubview:stD];
 
     UIButton *stA = [self mkButton:@"A 只截图（诊断）" color:[UIColor colorWithRed:0.20 green:0.32 blue:0.52 alpha:1] action:@selector(testCapture)];
-    stA.frame = CGRectMake(14 + (w - 34) / 2 + 6, 108, (w - 34) / 2, 28);
+    stA.frame = CGRectMake(14 + (w - 34) / 2 + 6, 138, (w - 34) / 2, 26);
     [p addSubview:stA];
     YBLogSync(@"[面板] 4 按钮 OK");
 
     UIButton *cl = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
-    cl.frame = CGRectMake(14, 140, w - 28, 26);
+    cl.frame = CGRectMake(14, 168, w - 28, 26);
     [p addSubview:cl];
     YBLogSync(@"[面板] 5 按钮全部 OK");
 
-    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 172, w - 28, 148)];
-    lg.numberOfLines = 23;
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 198, w - 28, 128)];
+    lg.numberOfLines = 20;
     lg.font = [UIFont systemFontOfSize:7.5];
     lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
     lg.text = [self logText];
@@ -321,6 +325,7 @@ static NSString *YBExtractText(UIView *v) {
 - (void)testOCR { [[YBEngine shared] testOCR]; }
 - (void)testTextTree { [[YBEngine shared] testTextTree]; }
 - (void)probeWelfare { [[YBEngine shared] probeWelfare]; }
+- (void)diagnoseWelfare { [[YBEngine shared] diagnoseWelfare]; }
 
 - (void)stopRun { [[YBEngine shared] stop]; }
 

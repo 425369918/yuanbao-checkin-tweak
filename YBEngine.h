@@ -28,5 +28,6 @@ extern NSString *const YBEngineRunStateChanged; // userInfo["running"] = @(BOOL)
 - (void)testOCR;       // 截图 + OCR（已废弃：Vision 在本进程会崩，仅留作取证）
 - (void)testTextTree;  // 只取视图树里的文字（判断能不能完全不依赖 OCR）
 - (void)probeWelfare;  // 点进福利中心并把页面全部文字打出来（校准锚点用）
+- (void)diagnoseWelfare; // 诊断「福利中心」每个候选的位置/可点性/点击效果
 @end
 NS_ASSUME_NONNULL_END

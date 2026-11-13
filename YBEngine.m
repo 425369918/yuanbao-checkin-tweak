@@ -16,6 +16,7 @@
 - (void)runOneTask:(NSString *)task count:(NSInteger)count auto:(BOOL)autoFill;
 - (BOOL)performStep:(YBStep *)s;
 - (void)probeWelfare;
+- (void)diagnoseWelfare;
 - (BOOL)visibleTextMatches:(NSArray<NSString *> *)keys;
 - (void)onMainVoid:(dispatch_block_t)block;
 - (BOOL)onMain:(BOOL(^)(void))block;
@@ -263,6 +264,27 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
                   seen.count ? [seen componentsJoinedByString:@" / "] : @"(0 行，画面可能是空白)");
         YBSetTrace("B:done");
         YBLogSync(@"===== 自检B 结束 =====");
+    });
+}
+
+// 自检 F：诊断「福利中心」到底能不能点 —— 每个候选在哪、在不在屏幕内、点不点得着、点完界面变没变
+- (void)diagnoseWelfare {
+    if (self.running) { YBLogSync(@"[自检F] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检F 开始（诊断福利中心能不能点） =====");
+        YBSetTrace("F:1 列候选");
+        [self onMainVoid:^{ [YBTouch diagnoseText:@[@"福利中心"] ]; }];
+
+        YBSetTrace("F:2 试点击");
+        __block NSString *before = nil;
+        [self onMainVoid:^{ before = [YBTouch textSignature]; }];
+        BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心", @"福利"] ]; }];
+        __block NSString *after = nil;
+        [self onMainVoid:^{ after = [YBTouch textSignature]; }];
+        YBLogSync(@"[F] 点击=%@ 指纹 %@ -> %@ %@", ok ? @"成功" : @"失败", before, after,
+                  [before isEqualToString:after] ? @"（界面没变）" : @"（界面已变）");
+        YBSetTrace("F:done");
+        YBLogSync(@"===== 自检F 结束 =====");
     });
 }
 
