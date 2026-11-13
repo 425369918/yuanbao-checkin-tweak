@@ -8,6 +8,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface YBWeb : NSObject
 + (NSArray<UIView *> *)webViews;                       // App 窗口里所有 WebView（已跳过自己的浮窗）
 + (NSArray<UIView *> *)webViewsOnMain;                 // 同上，但要求在主线程调用
++ (NSArray<UIView *> *)webViewsByArea;                 // 同上，按屏幕面积从大到小排
++ (UIView *)bestWeb;                                   // 挑"正文那个"（按任务关键词，其次按面积）
 + (void)logSummary;                                    // 打日志：找到几个、正文前 400 字、可点元素清单
 + (NSString *)textOfFirstWeb;                          // 第一个 WebView 的正文（失败返回 nil）
 + (BOOL)tapText:(NSArray<NSString *> *)keys;           // 在 H5 里按文字点元素（点完校验正文变化）
