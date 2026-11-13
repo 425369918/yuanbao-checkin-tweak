@@ -317,63 +317,70 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     dispatch_async(self.workQ, ^{
         YBLogSync(@"===== 自动打卡开始 =====");
 
-        // 1) 先进福利中心（已经在里面就跳过）
-        YBSetTrace("auto:1 判断是否在福利中心");
-        BOOL inside = [self pageHasAny:@[@"元宝能力站", @"已打卡", @"每日任务", @"兑换商城", @"奖品记录"]];
-        YBLogSync(@"[打卡] 当前已在福利中心: %@", inside ? @"是" : @"否");
-        if (!inside) {
-            YBSetTrace("auto:2 点福利中心");
-            BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心"] ]; }];
-            YBLogSync(@"[打卡] 点「福利中心」-> %@", ok ? @"已触发" : @"没找到");
-            [NSThread sleepForTimeInterval:2.0];
+        // 1) 进福利中心：最多试 6 次，每次都读页面验证
+        //    （以前是先判断"H5 通道"再进页面，顺序反了 —— 在首页永远读到 0 个 WebView，
+        //     于是整轮走了原生视图树，什么都点不着）
+        YBSetTrace("auto:1 进福利中心");
+        BOOL inside = [self isInWelfare];
+        for (NSInteger i = 0; i < 6 && !inside && !self.stopRequested; i++) {
+            BOOL tapped = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心"] ]; }];
+            YBLogSync(@"[打卡] 第 %ld 次点「福利中心」-> %@", (long)(i + 1), tapped ? @"已触发" : @"没找到入口");
+            [NSThread sleepForTimeInterval:1.5];
+            inside = [self isInWelfare];
         }
-        YBLogSync(@"[打卡] 福利中心页面文字 %lu 条（UIKit 里通常只有「返回」）",
-                  (unsigned long)[self dumpTextsNow].count);
+        YBLogSync(@"[打卡] 进入福利中心: %@", inside ? @"成功" : @"失败");
 
-        // 1.5) 这个页面如果是 H5，就走 WebView 通道（UIKit 里只有个「返回」，读不到正文）
-        YBSetTrace("auto:1b 判断H5");
+        // 2) 判断通道
+        YBSetTrace("auto:2 判断H5");
         NSArray<UIView *> *wvs = [YBWeb webViews];
-        BOOL isH5 = wvs.count > 0;
-        YBLogSync(@"[打卡] 页面 WebView %lu 个 -> H5 通道: %@", (unsigned long)wvs.count,
-                  isH5 ? @"开启" : @"关闭（走原生视图树）");
+        BOOL isH5 = (wvs.count > 0);
+        YBLogSync(@"[打卡] WebView %lu 个 -> %@", (unsigned long)wvs.count,
+                  isH5 ? @"走 H5 通道" : @"走原生视图树");
 
-        // 2) H5：按页面上"真实按钮文字"点（签到 / 打卡 / 领奖 / 去邀请）
-        NSInteger hitCount = 0;
+        NSMutableSet<NSString *> *seen = [NSMutableSet set];
+        NSInteger clicked = 0;
+
         if (isH5) {
-            YBSetTrace("auto:2 列按钮");
-            [YBWeb logClickables];
-            NSArray<NSArray *> *groups = @[
-                @[@"立即打卡", @"打卡", @"立即签到", @"签到领积分", @"签到"],
-                @[@"开心收下", @"收下", @"立即领取", @"领取", @"查看奖励"],
-                @[@"确定", @"知道了", @"我知道了", @"开心收下"],
-            ];
-            for (NSArray *g in groups) {
-                if (self.stopRequested) break;
-                YBSetTrace("auto:3 试按钮");
+            // 3) 扫荡式点击：每轮重新读页面上的按钮，挑一个最该点的、还没点过的，点完再读
+            YBSetTrace("auto:3 扫按钮");
+            NSArray *btns0 = [YBWeb clickableTexts];
+            YBLogSync(@"[打卡] 页面按钮 %lu 个", (unsigned long)btns0.count);
+            YBLogSync(@"[打卡] 按钮清单: %@", YBJoinKeys(btns0.count > 10 ? [btns0 subarrayWithRange:NSMakeRange(0, 10)] : btns0));
+
+            for (NSInteger step = 0; step < 12 && !self.stopRequested; step++) {
+                if (![self isInWelfare]) {
+                    YBLogSync(@"[打卡] 页面跳走了，尝试返回");
+                    [self onMain:^BOOL{ return [YBTouch tapText:@[@"返回"] ]; }];
+                    [NSThread sleepForTimeInterval:1.3];
+                    if (![self isInWelfare]) {
+                        [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心"] ]; }];
+                        [NSThread sleepForTimeInterval:1.5];
+                    }
+                    if (![self isInWelfare]) { YBLogSync(@"[打卡] 回不到福利中心，停止"); break; }
+                }
+                NSArray<NSString *> *btns = [YBWeb clickableTexts];
+                NSString *pick = nil;
+                NSInteger bestPri = 99;
+                for (NSString *t in btns) {
+                    NSInteger pri = [self priorityOfButton:t];
+                    if (pri < 0 || [seen containsObject:t]) continue;
+                    if (pri < bestPri) { bestPri = pri; pick = t; }
+                }
+                if (!pick) { YBLogSync(@"[打卡] 没有新的可点按钮了"); break; }
+                [seen addObject:pick];
+                YBSetTrace("auto:3 点按钮");
                 [YBWeb setQuiet:YES];
-                NSString *r = [YBWeb tapTextVerbose:g];
+                NSString *r = [YBWeb tapTextVerbose:@[pick]];
                 [YBWeb setQuiet:NO];
-                BOOL ok = !([r hasPrefix:@"ERR"] || [r isEqualToString:@"notfound"] || [r isEqualToString:@"no-webview"]);
-                YBLogSync(@"[打卡] 「%@」-> %@", YBJoinKeys(g), r ?: @"(无)");
-                if (ok) { hitCount++; [NSThread sleepForTimeInterval:1.2]; }
+                YBLogSync(@"[打卡] %ld 点「%@」-> %@", (long)(step + 1), pick, r ?: @"(无)");
+                if ([r hasPrefix:@"exact"] || [r hasPrefix:@"fuzzy"]) clicked++;
+                [NSThread sleepForTimeInterval:1.3];
             }
-            YBLogSync(@"[打卡] 本轮点中 %ld 组（邀请类任务按你的要求不做）", (long)hitCount);
-
-            // 签到结果：把「已打卡 N 天」这段单独抓出来，一眼看天数变没变
-            NSArray *stat = [YBWeb textAround:@"已打卡" span:14];
-            if (!stat.count) stat = [YBWeb textAround:@"还有" span:16];
-            YBLogSync(@"[签到状态] %@", stat.count ? YBJoinKeys(stat) : @"读不到");
-
-            YBSetTrace("auto:3b 复查");
-            NSString *t2 = [YBWeb textOfFirstWeb];
-            NSString *flat = [[t2 stringByReplacingOccurrencesOfString:@"\n" withString:@" "] ?: @"" copy];
-            YBLogSync(@"[打卡] 复查正文 %lu 字: %@", (unsigned long)flat.length,
-                      flat.length ? [flat substringToIndex:MIN(flat.length, (NSUInteger)220)] : @"(读不到)");
         } else {
-            // 原生页面：退回按文字找 UIView
+            // 原生页面兜底：按文字找 UIView
             NSArray<NSString *> *anchors = @[
                 @"签到", @"打卡", @"立即签到", @"签到领积分",
-                @"领取", @"开心收下", @"收下", @"立即领取", @"查看奖励",
+                @"领取", @"开心收下", @"收下", @"立即领取",
                 @"确定", @"知道了",
             ];
             for (NSString *a in anchors) {
@@ -381,20 +388,22 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
                 YBSetTrace("auto:3 试锚点");
                 BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[a] ]; }];
                 YBLogSync(@"[打卡] 锚点「%@」-> %@", a, ok ? @"已触发" : @"无此文字/没生效");
-                if (ok) { hitCount++; [NSThread sleepForTimeInterval:1.2]; }
+                if (ok) { clicked++; [NSThread sleepForTimeInterval:1.2]; }
             }
-            YBLogSync(@"[打卡] 本轮命中 %ld 个锚点", (long)hitCount);
         }
+        YBLogSync(@"[打卡] 共点中 %ld 个按钮（邀请类任务按你的要求不做）", (long)clicked);
 
-        // 3) 收尾：把最终正文打出来（能直接看出「已打卡N天」变没变）
+        // 4) 签到状态 + 正文尾部（尾部才是每日任务那段）
         YBSetTrace("auto:4 收尾");
+        NSArray *stat = [YBWeb textAround:@"已打卡" span:14];
+        if (!stat.count) stat = [YBWeb textAround:@"还有" span:16];
+        YBLogSync(@"[签到状态] %@", stat.count ? YBJoinKeys(stat) : @"读不到");
         if (isH5) {
             NSString *t = [YBWeb textOfFirstWeb];
             NSString *flat = [[t stringByReplacingOccurrencesOfString:@"\n" withString:@" "] ?: @"" copy];
-            // 打「尾巴」而不是「开头」：每日任务那段在正文最后，开头永远是顶部轮播
-            NSUInteger take = MIN(flat.length, (NSUInteger)320);
-            NSString *tail = take ? [flat substringFromIndex:flat.length - take] : @"(读不到)";
-            YBLogSync(@"[打卡完成] 正文 %lu 字，尾部: %@", (unsigned long)flat.length, tail);
+            NSUInteger take = MIN(flat.length, (NSUInteger)220);
+            YBLogSync(@"[打卡完成] 正文 %lu 字，尾部: %@", (unsigned long)flat.length,
+                      take ? [flat substringFromIndex:flat.length - take] : @"(读不到)");
         } else {
             [self logTexts:[self dumpTextsNow] tag:@"打卡完成"];
         }
@@ -405,21 +414,41 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     });
 }
 
+// 当前是不是在福利中心页面（UIKit 只有「返回」，所以同时读 H5 正文判断）
+- (BOOL)isInWelfare {
+    return [self pageHasAny:@[@"元宝能力站", @"每日任务", @"兑换商城", @"奖品记录"]];
+}
+
+// 给页面上的按钮文字定优先级：0=签到打卡 1=领奖/确认 2=任务入口 -1=不点
+- (NSInteger)priorityOfButton:(NSString *)t {
+    if (!t.length || t.length > 14) return -1;
+    NSArray<NSString *> *bad = @[
+        @"已完成", @"已打卡", @"距结束", @"个新用户", @"奖品记录", @"兑换商城",
+        @"元宝能力站", @"规则", @"换一波", @"查看奖励", @"邀请",
+        @"第1天", @"第2天", @"第3天", @"第4天", @"第5天", @"第6天", @"第7天", @"剩余",
+    ];
+    for (NSString *b in bad) if ([t containsString:b]) return -1;
+    for (NSString *k in @[@"打卡", @"签到"]) if ([t containsString:k]) return 0;
+    for (NSString *k in @[@"领取", @"开心收下", @"收下", @"立即", @"确定", @"知道了"]) if ([t containsString:k]) return 1;
+    if ([t hasPrefix:@"去"] || [t containsString:@"做同款"] || [t containsString:@"参与"]) return 2;
+    return -1;
+}
+
 // 自检 I：进福利中心（不在就点进去），然后只读 H5 信息，不点任何任务
 - (void)probeWelfareWeb {
     if (self.running) { YBLogSync(@"[自检I] 已有任务在跑"); return; }
     dispatch_async(self.workQ, ^{
         YBLogSync(@"===== 自检I 开始（进福利中心 + 读 H5） =====");
         YBSetTrace("I:1 判断是否在福利中心");
-        BOOL inside = [self pageHasAny:@[@"元宝能力站", @"已打卡", @"每日任务", @"兑换商城", @"奖品记录"]];
-        if (!inside) {
+        BOOL inside = [self isInWelfare];
+        for (NSInteger i = 0; i < 6 && !inside; i++) {
             YBSetTrace("I:2 点福利中心");
             BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心"] ]; }];
-            YBLogSync(@"[自检I] 点「福利中心」-> %@", ok ? @"已触发" : @"没找到");
-            [NSThread sleepForTimeInterval:2.0];
-        } else {
-            YBLogSync(@"[自检I] 已在福利中心页面");
+            YBLogSync(@"[自检I] 第 %ld 次点「福利中心」-> %@", (long)(i + 1), ok ? @"已触发" : @"没找到");
+            [NSThread sleepForTimeInterval:1.5];
+            inside = [self isInWelfare];
         }
+        YBLogSync(@"[自检I] 进入福利中心: %@", inside ? @"成功" : @"失败");
         YBSetTrace("I:3 读H5");
         [YBWeb logSummary];
         YBSetTrace("I:done");

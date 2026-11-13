@@ -176,6 +176,19 @@ static NSString * const kYBWebClickJS =
     return YES;
 }
 
++ (NSArray<NSString *> *)clickableTexts {
+    UIView *best = [self bestWeb];
+    if (!best) return @[];
+    NSString *r = [self syncJS:kYBWebBtnJS in:(WKWebView *)best];
+    if (!r.length) return @[];
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSString *p in [r componentsSeparatedByString:@" | "]) {
+        NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (t.length) [out addObject:t];
+    }
+    return out;
+}
+
 + (void)logClickables {
     UIView *best = [self bestWeb];
     if (!best) { YBLogSync(@"[H5] 没有 WebView，列不出按钮"); return; }
