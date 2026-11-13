@@ -119,6 +119,12 @@ NSString *YBPrevTrace(void) {
     return s.length ? s : @"(无)";
 }
 
+// 注意：NSArray 的 description 会把中文写成 \U798f 这种转义，日志里就完全没法读。
+// 所以凡是"锚点数组"一律先用这个拼成字符串再打。
+NSString *YBJoinKeys(NSArray<NSString *> *keys) {
+    return keys.count ? [keys componentsJoinedByString:@"/"] : @"(空)";
+}
+
 // 信号处理里只能用 open/write/close 这类 async-signal-safe 调用
 static void YBSigHandler(int sig) {
     const char *name = "?";

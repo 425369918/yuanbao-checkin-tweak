@@ -17,6 +17,10 @@
 - (BOOL)performStep:(YBStep *)s;
 - (void)probeWelfare;
 - (void)diagnoseWelfare;
+- (void)autoWelfare;
+- (NSArray<NSString *> *)dumpTextsNow;
+- (BOOL)pageHasAny:(NSArray<NSString *> *)keys;
+- (void)logTexts:(NSArray<NSString *> *)texts tag:(NSString *)tag;
 - (BOOL)visibleTextMatches:(NSArray<NSString *> *)keys;
 - (void)onMainVoid:(dispatch_block_t)block;
 - (BOOL)onMain:(BOOL(^)(void))block;
@@ -112,7 +116,7 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
 
 - (BOOL)performStep:(YBStep *)s {
     YBSetTrace("step:run");
-    YBLogSync(@"[步骤] kind=%ld keys=%@ secs=%.1f", (long)s.kind, s.keys ?: @[], (double)s.seconds);
+    YBLogSync(@"[步骤] kind=%ld keys=%@ secs=%.1f", (long)s.kind, YBJoinKeys(s.keys), (double)s.seconds);
     switch (s.kind) {
         case YBStepSleep:
             [NSThread sleepForTimeInterval:s.seconds];
@@ -125,7 +129,7 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
                 if (self.stopRequested) return NO;
                 [NSThread sleepForTimeInterval:0.6];
             }
-            YBLog(@"[等待] %@ 未在 %.0fs 内出现", s.keys, s.seconds);
+            YBLog(@"[等待] %@ 未在 %.0fs 内出现", YBJoinKeys(s.keys), s.seconds);
             return NO;
         }
 
@@ -267,6 +271,80 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     });
 }
 
+// 读当前页面的全部文字（主线程）
+- (NSArray<NSString *> *)dumpTextsNow {
+    __block NSArray<NSString *> *texts = nil;
+    [self onMainVoid:^{ texts = [YBTouch dumpVisibleTexts]; }];
+    return texts ?: @[];
+}
+
+- (BOOL)pageHasAny:(NSArray<NSString *> *)keys {
+    for (NSString *t in [self dumpTextsNow])
+        for (NSString *k in keys)
+            if (k.length && [t containsString:k]) return YES;
+    return NO;
+}
+
+// 把页面文字分条打出来（每行 5 条，面板一屏能看几行，日志文件里是全的）
+- (void)logTexts:(NSArray<NSString *> *)texts tag:(NSString *)tag {
+    YBLogSync(@"[%@] 页面文字 %lu 条", tag, (unsigned long)texts.count);
+    NSMutableString *line = [NSMutableString string];
+    NSInteger inLine = 0;
+    for (NSString *t in texts) {
+        if (inLine >= 5) { YBLogSync(@"[%@] %@", tag, line); [line setString:@""]; inLine = 0; }
+        [line appendFormat:@"%@ / ", t];
+        inLine++;
+    }
+    if (line.length) YBLogSync(@"[%@] %@", tag, line);
+}
+
+// 「执行全部任务」= 真正干活的那条：进福利中心 → 打卡 → 领奖励
+- (void)autoWelfare {
+    if (self.running) { YBLogSync(@"[打卡] 已有任务在跑"); return; }
+    [self setRunning:YES];
+    self.stopRequested = NO;
+    [self beginBG];
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自动打卡开始 =====");
+
+        // 1) 先进福利中心（已经在里面就跳过）
+        YBSetTrace("auto:1 判断是否在福利中心");
+        BOOL inside = [self pageHasAny:@[@"元宝能力站", @"已打卡", @"每日任务", @"兑换商城", @"奖品记录"]];
+        YBLogSync(@"[打卡] 当前已在福利中心: %@", inside ? @"是" : @"否");
+        if (!inside) {
+            YBSetTrace("auto:2 点福利中心");
+            BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心"] ]; }];
+            YBLogSync(@"[打卡] 点「福利中心」-> %@", ok ? @"已触发" : @"没找到");
+            [NSThread sleepForTimeInterval:2.0];
+        }
+        [self logTexts:[self dumpTextsNow] tag:@"打卡"];
+
+        // 2) 按锚点依次尝试：签到 / 打卡 / 领奖励 / 弹窗确认
+        NSArray<NSString *> *anchors = @[
+            @"签到", @"打卡", @"立即签到", @"签到领积分",
+            @"领取", @"开心收下", @"收下", @"立即领取", @"查看奖励",
+            @"确定", @"知道了",
+        ];
+        NSInteger hitCount = 0;
+        for (NSString *a in anchors) {
+            if (self.stopRequested) break;
+            YBSetTrace("auto:3 试锚点");
+            BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[a] ]; }];
+            YBLogSync(@"[打卡] 锚点「%@」-> %@", a, ok ? @"已触发" : @"无此文字/没生效");
+            if (ok) { hitCount++; [NSThread sleepForTimeInterval:1.2]; }
+        }
+        YBLogSync(@"[打卡] 本轮命中 %ld 个锚点", (long)hitCount);
+
+        // 3) 收尾再打一次页面文字，确认结果
+        YBSetTrace("auto:4 收尾");
+        [self logTexts:[self dumpTextsNow] tag:@"打卡完成"];
+        YBSetTrace("auto:done");
+        YBLogSync(@"===== 自动打卡结束 =====");
+        [self setRunning:NO];
+        [self endBG];
+    });
+}
+
 // 自检 F：诊断「福利中心」到底能不能点 —— 每个候选在哪、在不在屏幕内、点不点得着、点完界面变没变
 - (void)diagnoseWelfare {
     if (self.running) { YBLogSync(@"[自检F] 已有任务在跑"); return; }
@@ -278,7 +356,7 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
         YBSetTrace("F:2 试点击");
         __block NSString *before = nil;
         [self onMainVoid:^{ before = [YBTouch textSignature]; }];
-        BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心", @"福利"] ]; }];
+        BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心"] ]; }];
         __block NSString *after = nil;
         [self onMainVoid:^{ after = [YBTouch textSignature]; }];
         YBLogSync(@"[F] 点击=%@ 指纹 %@ -> %@ %@", ok ? @"成功" : @"失败", before, after,
@@ -295,9 +373,15 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     dispatch_async(self.workQ, ^{
         YBLogSync(@"===== 自检E 开始（点福利中心 + 打印页面文字） =====");
         YBSetTrace("E:1 点福利中心");
-        BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心", @"福利"] ]; }];
-        YBLogSync(@"[自检E] 点「福利中心」-> %@", ok ? @"已触发" : @"没找到/没触发");
-        [NSThread sleepForTimeInterval:2.0];
+        // 已经在福利中心页面里的话就别再点了（点了也找不到「福利中心」，白跑一趟）
+        BOOL inside = [self pageHasAny:@[@"元宝能力站", @"已打卡", @"每日任务", @"兑换商城", @"奖品记录"]];
+        if (inside) {
+            YBLogSync(@"[自检E] 已经在福利中心页面，跳过点击");
+        } else {
+            BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心"] ]; }];
+            YBLogSync(@"[自检E] 点「福利中心」-> %@", ok ? @"已触发" : @"没找到/没触发");
+            [NSThread sleepForTimeInterval:2.0];
+        }
 
         for (int round = 1; round <= 3; round++) {
             YBSetTrace("E:2 读页面文字");

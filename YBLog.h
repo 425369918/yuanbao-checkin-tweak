@@ -11,6 +11,9 @@ void YBSetTrace(const char *step);       // 标记"进行到哪一步"（信号�
 NSString *YBLastTrace(void);             // 上次进行到哪一步（跨进程可见）
 void YBMarkBootTrace(void);              // 启动时记下"上一次进程最后一步"
 NSString *YBPrevTrace(void);             // 上一次进程最后进行到哪一步
+
+// 日志里的"锚点数组"必须拼成字符串再打：直接 %@ 打 NSArray 会把中文转成 \U798f 这种转义
+NSString *YBJoinKeys(NSArray<NSString *> *keys);
 void YBLogInstallSignalHandlers(void);   // SIGSEGV/SIGABRT/SIGBUS… 写进日志再退出
 
 // 上一次进程是不是"没跑完就没了"（信号崩溃 / 被系统杀 / 未捕获异常）。

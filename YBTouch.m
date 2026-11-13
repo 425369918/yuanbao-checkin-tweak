@@ -342,7 +342,7 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
     if (!cs.count) {
         // 视图树里没有文字（纯自绘 UI）：走无障碍元素
         if ([self tapAccessibilityElement:keys in:[self keyWindow]]) return YES;
-        YBLog(@"[点按] 未找到文字 %@", keys);
+        YBLog(@"[点按] 未找到文字 %@", YBJoinKeys(keys));
         return NO;
     }
 
@@ -363,27 +363,27 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
         if (tries++ >= 3) break;           // 最多试 3 个，防止来回乱点
         UIView *v = d[@"view"];
         BOOL trig = [self activateView:v];
-        YBLog(@"[点按] %@ 候选 %@ 屏内=%.2f 可命中=%@ 触发=%@", keys, NSStringFromClass(v.class),
+        YBLog(@"[点按] %@ 候选 %@ 屏内=%.2f 可命中=%@ 触发=%@", YBJoinKeys(keys), NSStringFromClass(v.class),
               [d[@"ratio"] doubleValue], [d[@"hit"] boolValue] ? @"是" : @"否", trig ? @"是" : @"否");
         if (!trig) continue;
         [NSThread sleepForTimeInterval:0.9];
         NSString *after = [self textSignature];
         if (![after isEqualToString:before]) {
-            YBLog(@"[点按] %@ 界面已变化（%d 号候选），成功", keys, (int)tries);
+            YBLog(@"[点按] %@ 界面已变化（%d 号候选），成功", YBJoinKeys(keys), (int)tries);
             return YES;
         }
-        YBLog(@"[点按] %@ 界面没变化，换下一个候选", keys);
+        YBLog(@"[点按] %@ 界面没变化，换下一个候选", YBJoinKeys(keys));
     }
     // 候选都触发不了 → 再走"无障碍元素"通道（SwiftUI 按钮的 action 挂在无障碍元素上）
     if ([self tapAccessibilityElement:keys in:[self keyWindow]]) {
-        YBLog(@"[点按] %@ 经无障碍元素触发成功", keys);
+        YBLog(@"[点按] %@ 经无障碍元素触发成功", YBJoinKeys(keys));
         return YES;
     }
     // 都不行，最后退到坐标点按（用第一个候选的中心）
     NSDictionary *d0 = sorted.firstObject;
     CGRect r0 = [d0[@"rect"] CGRectValue];
     CGPoint c = CGPointMake(CGRectGetMidX(r0), CGRectGetMidY(r0));
-    YBLog(@"[点按] %@ 所有候选都没生效，最后试坐标 (%.0f,%.0f)", keys, c.x, c.y);
+    YBLog(@"[点按] %@ 所有候选都没生效，最后试坐标 (%.0f,%.0f)", YBJoinKeys(keys), c.x, c.y);
     return [self tapPoint:c];
 }
 
@@ -393,7 +393,7 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
     YBLog(@"[F] 窗口 %@ 尺寸=%.0fx%.0f", w ? NSStringFromClass(w.class) : @"无",
           w.bounds.size.width, w.bounds.size.height);
     NSArray<NSDictionary *> *cs = [self textCandidates:keys];
-    YBLog(@"[F] 文字 %@ 命中 %lu 个候选", keys, (unsigned long)cs.count);
+    YBLog(@"[F] 文字 %@ 命中 %lu 个候选", YBJoinKeys(keys), (unsigned long)cs.count);
     NSInteger i = 0;
     for (NSDictionary *d in cs) {
         if (++i > 6) break;
@@ -428,7 +428,7 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
             for (UIView *s in x.subviews) [q addObject:s];
         }
     }
-    if (!tf && !tv) { YBLog(@"[输入] 未找到输入框 %@", keys); return NO; }
+    if (!tf && !tv) { YBLog(@"[输入] 未找到输入框 %@", YBJoinKeys(keys)); return NO; }
     if (tf) {
         tf.text = text;
         [tf sendActionsForControlEvents:UIControlEventEditingChanged];

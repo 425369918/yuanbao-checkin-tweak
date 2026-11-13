@@ -234,13 +234,12 @@ static NSString *YBExtractText(UIView *v) {
     [p addSubview:t];
     YBLogSync(@"[面板] 2 标题 OK");
 
-    UIButton *go = [self mkButton:@"▶ 执行全部任务（视图树，不用OCR）" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
+    UIButton *go = [self mkButton:@"▶ 一键打卡 + 领奖励（手动）" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
     go.frame = CGRectMake(14, 36, w - 28, 34);
     [p addSubview:go];
     YBLogSync(@"[面板] 3 执行按钮 OK");
 
-    // Vision 的 performRequests 在元宝进程里必崩（已由 A/B 两段实机验证），
-    // 所以 OCR 按钮全部撤掉，只留视图树通道的三个按钮。
+    // 下面几个是排查用的：E 进页面看文字、F 看候选能不能点、D 只读文字、A 只截图
     UIButton *stE = [self mkButton:@"E 进福利中心 + 打印页面文字" color:[UIColor colorWithRed:0.55 green:0.32 blue:0.10 alpha:1] action:@selector(probeWelfare)];
     stE.frame = CGRectMake(14, 74, w - 28, 28);
     [p addSubview:stE];
@@ -318,7 +317,7 @@ static NSString *YBExtractText(UIView *v) {
 
 // ---- 交互 ----
 
-- (void)runAll { [[YBEngine shared] runTasks:@[@"all"] count:-1 auto:YES]; }
+- (void)runAll { [[YBEngine shared] autoWelfare]; }
 
 - (void)selfTest { [[YBEngine shared] selfTest]; }
 - (void)testCapture { [[YBEngine shared] testCapture]; }
