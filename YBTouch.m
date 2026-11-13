@@ -7,6 +7,7 @@
 + (UIView *)_enclosingTable:(UIView *)v;
 + (UIView *)deepHit:(CGPoint)pt in:(UIView *)root;
 + (BOOL)activateView:(UIView *)v;
++ (BOOL)tapAccessibilityElement:(NSArray<NSString *> *)keys in:(UIView *)root;
 @end
 
 @implementation YBTouch
@@ -218,6 +219,52 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
     return NO;
 }
 
+// 自绘 UI（SwiftUI / 自绘界面）常常整棵树里没有 UILabel，但会暴露无障碍元素。
+// accessibilityElements 是公开属性，这里按标签找元素再 activate —— 公开 API，安全。
++ (BOOL)tapAccessibilityElement:(NSArray<NSString *> *)keys in:(UIView *)root {
+    if (!root || !keys.count) return NO;
+    NSMutableArray *q = [NSMutableArray arrayWithObject:root];
+    NSUInteger visits = 0;
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.2];
+    while (q.count) {
+        if (visits++ > 8000) break;
+        if ((visits & 255) == 0 && [deadline timeIntervalSinceNow] < 0) break;
+        id v = q.firstObject; [q removeObjectAtIndex:0];
+        @try {
+            if ([v respondsToSelector:@selector(accessibilityElements)]) {
+                NSArray *els = [v accessibilityElements];
+                if ([els isKindOfClass:NSArray.class]) {
+                    for (id el in els) {
+                        NSString *label = nil;
+                        @try {
+                            if ([el respondsToSelector:@selector(accessibilityLabel)]) label = [el accessibilityLabel];
+                            if (!label.length && [el respondsToSelector:@selector(accessibilityValue)])
+                                label = [el accessibilityValue];
+                        } @catch (NSException *e) { }
+                        if ([label isKindOfClass:NSString.class] && label.length) {
+                            for (NSString *k in keys) {
+                                if (k.length && [label containsString:k]) {
+                                    YBLog(@"[无障碍] 命中 \"%@\"", label);
+                                    @try {
+                                        if ([el accessibilityActivate]) return YES;
+                                    } @catch (NSException *e) {
+                                        YBLog(@"[无障碍] activate 异常: %@", e.reason);
+                                    }
+                                }
+                            }
+                        }
+                        if ([el isKindOfClass:UIView.class]) [q addObject:el];
+                    }
+                }
+            }
+        } @catch (NSException *e) { }
+        if ([v isKindOfClass:UIView.class]) {
+            for (UIView *s in [(UIView *)v subviews]) [q addObject:s];
+        }
+    }
+    return NO;
+}
+
 // 自己手动做命中测试：不用 [win hitTest:withEvent:nil]
 // 原因：注入进第三方 App 后，它们自己重写的 hitTest:withEvent: 常常默认 event 不为 nil，
 // 传 nil 进去会直接崩（野指针），这是"一点执行就闪退"的典型来源。
@@ -251,7 +298,12 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
 
 + (BOOL)tapText:(NSArray<NSString *> *)keys {
     UIView *v = [self findViewWithText:keys];
-    if (!v) { YBLog(@"[点按] 未找到文字 %@", keys); return NO; }
+    if (!v) {
+        // 视图树里没有文字（自绘 UI）：走无障碍元素
+        if ([self tapAccessibilityElement:keys in:[self keyWindow]]) return YES;
+        YBLog(@"[点按] 未找到文字 %@", keys);
+        return NO;
+    }
     // 先在命中的视图上直接触发（不走坐标，最安全）
     if ([self activateView:v]) {
         YBLog(@"[点按] 文字命中 %@ -> 已触发 (%@)", keys, NSStringFromClass(v.class));
