@@ -31,5 +31,7 @@ extern NSString *const YBEngineRunStateChanged; // userInfo["running"] = @(BOOL)
 - (void)diagnoseWelfare; // 诊断「福利中心」每个候选的位置/可点性/点击效果
 - (void)autoWelfare;    // 真正干活：进福利中心 -> 打卡 -> 领奖励（纯视图树/H5，手动触发）
 - (void)probeWeb;       // 只读 H5 页面文字（判断福利中心是不是 WebView）
+- (void)probeWelfareWeb; // 进福利中心 + 只读 H5 信息（不点任务）
+- (void)probeA11y;      // 读无障碍元素文字（判断是不是 SwiftUI/Flutter 自绘页）
 @end
 NS_ASSUME_NONNULL_END

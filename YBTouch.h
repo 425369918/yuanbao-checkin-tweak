@@ -16,5 +16,6 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSArray<NSString *> *)dumpVisibleTexts;          // 当前屏幕可见文字（调试/录制）
 + (void)diagnoseText:(NSArray<NSString *> *)keys;   // 打印按文字找控件的每个候选（排查"点了没反应"）
 + (NSString *)textSignature;                        // 当前界面文字指纹（判断点击后界面变没变）
++ (NSArray<NSString *> *)dumpAccessibilityTexts;     // 无障碍元素里的文字（SwiftUI/自绘页面常只在这里有）
 @end
 NS_ASSUME_NONNULL_END

@@ -20,6 +20,8 @@
 - (void)diagnoseWelfare;
 - (void)autoWelfare;
 - (void)probeWeb;
+- (void)probeWelfareWeb;
+- (void)probeA11y;
 - (NSArray<NSString *> *)dumpTextsNow;
 - (BOOL)pageHasAny:(NSArray<NSString *> *)keys;
 - (void)logTexts:(NSArray<NSString *> *)texts tag:(NSString *)tag;
@@ -362,6 +364,50 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
         YBLogSync(@"===== 自动打卡结束 =====");
         [self setRunning:NO];
         [self endBG];
+    });
+}
+
+// 自检 I：进福利中心（不在就点进去），然后只读 H5 信息，不点任何任务
+- (void)probeWelfareWeb {
+    if (self.running) { YBLogSync(@"[自检I] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检I 开始（进福利中心 + 读 H5） =====");
+        YBSetTrace("I:1 判断是否在福利中心");
+        BOOL inside = [self pageHasAny:@[@"元宝能力站", @"已打卡", @"每日任务", @"兑换商城", @"奖品记录"]];
+        if (!inside) {
+            YBSetTrace("I:2 点福利中心");
+            BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心"] ]; }];
+            YBLogSync(@"[自检I] 点「福利中心」-> %@", ok ? @"已触发" : @"没找到");
+            [NSThread sleepForTimeInterval:2.0];
+        } else {
+            YBLogSync(@"[自检I] 已在福利中心页面");
+        }
+        YBSetTrace("I:3 读H5");
+        [YBWeb logSummary];
+        YBSetTrace("I:done");
+        YBLogSync(@"===== 自检I 结束 =====");
+    });
+}
+
+// 自检 J：读无障碍元素里的文字（判断页面是不是 SwiftUI / Flutter 这类自绘页面）
+- (void)probeA11y {
+    if (self.running) { YBLogSync(@"[自检J] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检J 开始（读无障碍元素） =====");
+        YBSetTrace("J:1 遍历无障碍元素");
+        __block NSArray<NSString *> *texts = nil;
+        [self onMainVoid:^{ texts = [YBTouch dumpAccessibilityTexts]; }];
+        YBLogSync(@"[自检J] 无障碍文字 %lu 条", (unsigned long)texts.count);
+        NSMutableString *line = [NSMutableString string];
+        NSInteger inLine = 0;
+        for (NSString *t in texts) {
+            if (inLine >= 4) { YBLogSync(@"[J] %@", line); [line setString:@""]; inLine = 0; }
+            [line appendFormat:@"%@ / ", t];
+            inLine++;
+        }
+        if (line.length) YBLogSync(@"[J] %@", line);
+        YBSetTrace("J:done");
+        YBLogSync(@"===== 自检J 结束 =====");
     });
 }
 

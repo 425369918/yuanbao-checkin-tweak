@@ -417,6 +417,53 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
     return [self tapPoint:c];
 }
 
+// 无障碍元素里的文字。
+// 为什么单独做这条：SwiftUI / Flutter 这类"自绘"页面，屏幕上明明有字，
+// 但 UIView 层级里一个 UILabel 都没有 —— 字全在 accessibilityElements 里。
++ (NSArray<NSString *> *)dumpAccessibilityTexts {
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    NSUInteger visits = 0;
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+    for (UIWindow *w in [self appWindows]) {
+        NSMutableArray *q = [NSMutableArray arrayWithObject:w];
+        while (q.count) {
+            if (visits++ > 12000) break;
+            if ((visits & 255) == 0 && [deadline timeIntervalSinceNow] < 0) break;
+            id v = q.firstObject; [q removeObjectAtIndex:0];
+
+            @try {
+                if ([v respondsToSelector:@selector(accessibilityElements)]) {
+                    id els = [v accessibilityElements];
+                    if ([els isKindOfClass:NSArray.class]) {
+                        for (id el in (NSArray *)els) {
+                            NSString *s = nil;
+                            @try {
+                                if ([el respondsToSelector:@selector(accessibilityLabel)]) s = [el accessibilityLabel];
+                                if (!s.length && [el respondsToSelector:@selector(accessibilityValue)])
+                                    s = [el accessibilityValue];
+                            } @catch (NSException *e) { }
+                            if ([s isKindOfClass:NSString.class] && s.length) [out addObject:s];
+                            [q addObject:el];
+                        }
+                    }
+                }
+            } @catch (NSException *e) { }
+
+            @try {
+                if ([v respondsToSelector:@selector(accessibilityLabel)]) {
+                    NSString *s = [v accessibilityLabel];
+                    if ([s isKindOfClass:NSString.class] && s.length) [out addObject:s];
+                }
+            } @catch (NSException *e) { }
+
+            if ([v isKindOfClass:UIView.class]) {
+                for (UIView *s in [(UIView *)v subviews]) [q addObject:s];
+            }
+        }
+    }
+    return out;
+}
+
 // 诊断：把「按文字找控件」这一路上每个候选的真实情况打出来（一屏能看完，方便拍面板）
 + (void)diagnoseText:(NSArray<NSString *> *)keys {
     UIWindow *w = [self keyWindow];
