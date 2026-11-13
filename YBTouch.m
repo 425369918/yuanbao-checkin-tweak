@@ -33,6 +33,16 @@ static BOOL YBIsOwnOverlay(UIWindow *w) {
     YBLog(@"[窗口] 已登记自己的悬浮窗 %@ level=%.0f", NSStringFromClass(w.class), w.windowLevel);
 }
 
+// 截图前把自己的浮窗藏起来（否则会被截进画面，OCR 会认到我们自己的按钮文字）
++ (void)setOwnOverlaysHidden:(BOOL)hidden {
+    if (!gOwnWindows) return;
+    NSMutableArray *ws = [NSMutableArray array];
+    @synchronized (gOwnWindows) {
+        for (UIWindow *o in gOwnWindows) if (o) [ws addObject:o];
+    }
+    for (UIWindow *o in ws) { @try { o.hidden = hidden; } @catch (NSException *e) { } }
+}
+
 // 拿 App 自己的窗口：key window 常常不可靠（我们自己的浮窗、键盘窗、弹窗各占一个 level），
 // 所以按"可见 + 不是自己的 + 层级最低 + 面积最大"来挑。
 + (UIWindow *)keyWindow {
@@ -94,23 +104,31 @@ static BOOL YBIsOwnOverlay(UIWindow *w) {
     for (NSUInteger i = 0; i < n; i++) [cls addObject:NSStringFromClass([rv.subviews[i] class])];
     YBLog(@"[诊断] 根视图 %@ 子视图(%lu): %@", NSStringFromClass(rv.class),
           (unsigned long)rv.subviews.count, [cls componentsJoinedByString:@", "]);
-    YBLog(@"[诊断] 视图树可见文字 %lu 条（详情见每次点按的日志）",
-          (unsigned long)[self dumpVisibleTexts].count);
 }
 
 // 视图“自己身上的文字”
 static NSString *YBViewText(UIView *v) {
     NSMutableArray *s = [NSMutableArray array];
-    if ([v isKindOfClass:UILabel.class]) { UILabel *l=(UILabel*)v; if(l.text.length)[s addObject:l.text]; }
-    if ([v isKindOfClass:UIButton.class]) {
-        UIButton *b=(UIButton*)v;
-        if (b.currentTitle.length) [s addObject:b.currentTitle];
-        if (b.titleLabel.text.length) [s addObject:b.titleLabel.text];
-    }
-    if ([v isKindOfClass:UITextField.class]) { UITextField *t=(UITextField*)v; if(t.text.length)[s addObject:t.text]; if(t.placeholder.length)[s addObject:t.placeholder]; }
-    if ([v isKindOfClass:UITextView.class]) { UITextView *t=(UITextView*)v; if(t.text.length)[s addObject:t.text]; }
-    if (v.accessibilityLabel.length) [s addObject:v.accessibilityLabel];
-    if (v.accessibilityValue.length) [s addObject:v.accessibilityValue];
+    // 逐段包 @try：自绘界面某些节点读 accessibility 属性会往里抛异常，不能让它带走整个遍历
+    @try {
+        if ([v isKindOfClass:UILabel.class]) { UILabel *l=(UILabel*)v; if(l.text.length)[s addObject:l.text]; }
+        if ([v isKindOfClass:UIButton.class]) {
+            UIButton *b=(UIButton*)v;
+            if (b.currentTitle.length) [s addObject:b.currentTitle];
+            if (b.titleLabel.text.length) [s addObject:b.titleLabel.text];
+        }
+        if ([v isKindOfClass:UITextField.class]) { UITextField *t=(UITextField*)v; if(t.text.length)[s addObject:t.text]; if(t.placeholder.length)[s addObject:t.placeholder]; }
+        if ([v isKindOfClass:UITextView.class]) { UITextView *t=(UITextView*)v; if(t.text.length)[s addObject:t.text]; }
+    } @catch (NSException *e) { }
+
+    @try {
+        NSString *al = v.accessibilityLabel;
+        if (al.length) [s addObject:al];
+    } @catch (NSException *e) { }
+    @try {
+        NSString *av = v.accessibilityValue;
+        if (av.length) [s addObject:av];
+    } @catch (NSException *e) { }
     return [s componentsJoinedByString:@" | "];
 }
 

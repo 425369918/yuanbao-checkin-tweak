@@ -6,6 +6,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface YBTouch : NSObject
 + (UIWindow *)keyWindow;                            // 尽量拿到 App 自己的那个窗口
 + (void)registerOwnWindow:(UIWindow *)w;            // 把自己的悬浮窗登记进来，永远不当作 App 窗口
++ (void)setOwnOverlaysHidden:(BOOL)hidden;          // 截图时临时藏起自己的浮窗
 + (void)logDiagnostics;                             // 打一行环境/窗口/控件诊断到日志（排查用）
 + (BOOL)tapPoint:(CGPoint)pt;                       // 命中控件并触发
 + (BOOL)tapText:(NSArray<NSString *> *)keys;        // 视图树里按文字找控件并点

@@ -145,3 +145,48 @@ void YBLogClear(void) {
     @synchronized (gRing) { [gRing removeAllObjects]; }
     if (gPath) [[NSFileManager defaultManager] removeItemAtPath:gPath error:NULL];
 }
+
+// ---- 上一次运行是否没跑完（崩溃 / 被系统杀）----
+static NSArray<NSString *> *YBLogFileLines(void) {
+    NSString *p = YBLogFilePath();
+    if (!p) return @[];
+    NSString *all = [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:NULL];
+    if (!all.length) return @[];
+    return [all componentsSeparatedByString:@"\n"];
+}
+
+// 从最后一条 "[启动] YuanbaoCheckin 已注入" 开始，算作"上一次进程"
+static NSArray<NSString *> *YBLastRunSlice(void) {
+    NSArray<NSString *> *lines = YBLogFileLines();
+    if (!lines.count) return @[];
+    NSInteger start = -1;
+    for (NSInteger i = (NSInteger)lines.count - 1; i >= 0; i--) {
+        if ([lines[i] containsString:@"[启动] YuanbaoCheckin 已注入"]) { start = i; break; }
+    }
+    if (start < 0) return lines;
+    return [lines subarrayWithRange:NSMakeRange((NSUInteger)start, lines.count - (NSUInteger)start)];
+}
+
+BOOL YBLastRunUnfinished(void) {
+    NSArray<NSString *> *slice = YBLastRunSlice();
+    if (!slice.count) return NO;
+    BOOL began = NO, ended = NO, crash = NO;
+    for (NSString *l in slice) {
+        if ([l containsString:@"[信号崩溃]"]) crash = YES;
+        if ([l containsString:@"[崩溃] "])     crash = YES;
+        if ([l containsString:@"===== 自检开始"] || [l containsString:@"===== 开始，任务"]) began = YES;
+        if ([l containsString:@"===== 自检结束"] || [l containsString:@"===== 全部结束"]) ended = YES;
+    }
+    if (crash) return YES;
+    return began && !ended;          // 开始了但没结束：被系统 SIGKILL 杀掉也是这种形态
+}
+
+NSArray<NSString *> *YBLastRunLogTail(NSUInteger n) {
+    NSArray<NSString *> *slice = YBLastRunSlice();
+    NSUInteger end = slice.count;
+    while (end > 0 &&
+           [[slice[end - 1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet] length] == 0) end--;
+    if (end == 0) return @[];
+    NSUInteger from = end > n ? end - n : 0;
+    return [slice subarrayWithRange:NSMakeRange(from, end - from)];
+}

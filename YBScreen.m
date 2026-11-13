@@ -2,8 +2,25 @@
 #import "YBTouch.h"
 #import "YBLog.h"
 #import <Vision/Vision.h>
+#import <dlfcn.h>
 
 @implementation YBScreen
+
+// 系统内部的全屏截图函数（UIKit 私有）。好处：
+//  1) 不强制 App 重新渲染（drawViewHierarchy 会，注入场景里很容易崩）
+//  2) 能抓到 Metal / 自绘界面的内容，drawViewHierarchy 抓不到
+static UIImage *YBScreenUIImagePrivate(void) {
+    static void *fn = NULL;
+    static BOOL tried = NO;
+    if (!tried) {
+        tried = YES;
+        fn = dlsym(RTLD_DEFAULT, "_UICreateScreenUIImage");
+        YBLogSync(@"[截图] _UICreateScreenUIImage %@", fn ? @"可用" : @"不可用");
+    }
+    if (!fn) return nil;
+    @try { return ((__unsafe_unretained UIImage *(*)(void))fn)(); }
+    @catch (NSException *e) { YBLogSync(@"[截图] 私有截图异常: %@", e.reason); return nil; }
+}
 
 static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
     if (!img) return nil;
@@ -33,19 +50,30 @@ static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
               root.bounds.size.width, root.bounds.size.height);
 
     UIImage *img = nil;
-    // afterScreenUpdates 必须用 NO：
-    // 传 YES 会强制同步做一遍渲染/提交，注入进程里很容易和 App 自己的渲染事务打架，
-    // 表现就是"点执行的瞬间直接闪退"。
-    @try {
-        UIGraphicsBeginImageContextWithOptions(root.bounds.size, NO, 0);
-        [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:NO];
-        img = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-    } @catch (NSException *e) {
-        YBLogSync(@"[截图] drawViewHierarchy 异常: %@", e.reason);
+
+    // 优先用系统全屏截图：不触发 App 重绘，且能抓到 Metal/自绘内容。
+    // 它会把我们自己的浮窗也截进去，所以截之前先把自己的窗户藏起来，截完立刻恢复。
+    YBSetTrace("capture:2 私有截图");
+    [YBTouch setOwnOverlaysHidden:YES];
+    img = YBScreenUIImagePrivate();
+    [YBTouch setOwnOverlaysHidden:NO];
+    if (img) YBLogSync(@"[截图] 私有截图成功 %.0fx%.0f", img.size.width, img.size.height);
+
+    if (!img) {
+        // 兜底 1：读当前画面，不强制 App 重新渲染
+        YBSetTrace("capture:3 drawViewHierarchy");
+        @try {
+            UIGraphicsBeginImageContextWithOptions(root.bounds.size, NO, 0);
+            [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:NO];
+            img = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+        } @catch (NSException *e) {
+            YBLogSync(@"[截图] drawViewHierarchy 异常: %@", e.reason);
+        }
     }
     if (!img) {
-        // 兜底：直接渲染 layer（拿不到 Metal 内容，但不会崩）
+        // 兜底 2：直接渲染 layer（拿不到 Metal 内容，但不会崩）
+        YBSetTrace("capture:4 renderInContext");
         @try {
             UIGraphicsBeginImageContextWithOptions(root.bounds.size, NO, 0);
             [root.layer renderInContext:UIGraphicsGetCurrentContext()];
@@ -70,28 +98,32 @@ static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
 
 - (void)runOCR {
     CGImageRef cg = self.image.CGImage;
-    if (!cg) { self.lines = @[]; return; }
+    if (!cg) { YBLogSync(@"[OCR] 没有图像，跳过"); self.lines = @[]; return; }
     NSMutableArray *out = [NSMutableArray array];
     // 注意：UIImage.size 已是「点」，OCR 坐标要按「像素」换算后再除以 scale
     CGSize px = CGSizeMake(CGImageGetWidth(cg), CGImageGetHeight(cg));
     // 只用 capture() 里在主线程算好的 scale，避免在后台线程碰 UIScreen
     CGFloat sc = self.scale > 0 ? self.scale : 2.0;
+    YBSetTrace("ocr:1 开始");
+    YBLogSync(@"[OCR] 开始 %.0fx%.0f px", px.width, px.height);
+
+    NSTimeInterval t0 = [NSDate date].timeIntervalSince1970;
 
     VNImageRequestHandler *h = [[VNImageRequestHandler alloc] initWithCGImage:cg options:@{}];
     VNRecognizeTextRequest *req = [[VNRecognizeTextRequest alloc] init];
     req.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
-    req.usesLanguageCorrection = YES;                 // 中文行文有助识别
+    req.usesLanguageCorrection = NO;                  // 关掉语言纠错：省 CPU/内存，中文照样能认
     req.recognitionLanguages = @[@"zh-Hans", @"zh-Hant", @"en-US"];
     if (@available(iOS 16.0, *)) req.revision = VNRecognizeTextRequestRevision3;   // 更准的中文模型
 
     NSError *err = nil;
     @try {
         if (![h performRequests:@[req] error:&err]) {
-            YBLog(@"[OCR] 失败: %@", err.localizedDescription);
+            YBLogSync(@"[OCR] 失败: %@", err.localizedDescription);
             self.lines = @[]; return;
         }
     } @catch (NSException *e) {
-        YBLog(@"[OCR] 异常: %@", e.reason);
+        YBLogSync(@"[OCR] 异常: %@", e.reason);
         self.lines = @[]; return;
     }
     for (VNRecognizedTextObservation *o in req.results) {
@@ -108,8 +140,9 @@ static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
         [out addObject:@{@"text": t.string, @"rect": [NSValue valueWithCGRect:pr], @"conf": @(t.confidence)}];
     }
     self.lines = out;
-    YBLog(@"[OCR] %lu 行 (屏幕 %.0fx%.0f pt)", (unsigned long)out.count,
-          self.pointSize.width, self.pointSize.height);
+    YBSetTrace("ocr:done");
+    YBLogSync(@"[OCR] %lu 行，用时 %.1fs (屏幕 %.0fx%.0f pt)", (unsigned long)out.count,
+              [NSDate date].timeIntervalSince1970 - t0, self.pointSize.width, self.pointSize.height);
 }
 
 - (NSArray<NSDictionary *> *)lineDicts { return self.lines ?: @[]; }

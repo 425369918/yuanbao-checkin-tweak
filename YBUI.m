@@ -83,6 +83,7 @@ static NSString *YBExtractText(UIView *v) {
 @property (nonatomic, strong) NSTimer *logTimer;
 @property (nonatomic, weak) UILabel *timeLabel;
 @property (nonatomic, strong) UIWindow *overlay;
+@property (nonatomic, copy) NSArray<NSString *> *replay;   // 崩溃回放的行
 - (NSString *)logText;
 - (void)startLogTimer;
 - (void)tickLog;
@@ -106,6 +107,12 @@ static NSString *YBExtractText(UIView *v) {
 }
 
 + (void)showPanel { [[self shared] togglePanel]; }
+
++ (void)showCrashReplay:(NSArray<NSString *> *)lines {
+    if (!lines.count) return;
+    [self shared].replay = lines;
+    if (![self shared].panel) [[self shared] togglePanel];
+}
 
 // 用独立的悬浮窗，避免被元宝上层视图/模态遮住
 - (UIWindow *)window {
@@ -167,7 +174,7 @@ static NSString *YBExtractText(UIView *v) {
 }
 
 - (void)togglePanel {
-    if (self.panel) { [self.panel removeFromSuperview]; self.panel = nil; [self.logTimer invalidate]; self.logTimer = nil; self.logLabel = nil; return; }
+    if (self.panel) { [self.panel removeFromSuperview]; self.panel = nil; [self.logTimer invalidate]; self.logTimer = nil; self.logLabel = nil; self.replay = nil; return; }
     // 建面板涉及一堆控件，任何一步抛异常都别把 App 带崩：兜住并记日志
     YBSetTrace("panel:start");
     YBLogSync(@"[面板] 开始构建");
@@ -255,6 +262,13 @@ static NSString *YBExtractText(UIView *v) {
 }
 
 - (NSString *)logText {
+    // 崩溃回放：上次进程没跑完，就把那一段的最后几行摊在面板上（不用用户自己去翻文件）
+    if (self.replay.count) {
+        NSMutableArray *rls = [NSMutableArray arrayWithObject:@"=== 上次没跑完，下面是崩溃前的日志 ==="];
+        NSUInteger rn = MIN(self.replay.count, (NSUInteger)16);
+        [rls addObjectsFromArray:[self.replay subarrayWithRange:NSMakeRange(self.replay.count - rn, rn)]];
+        return [rls componentsJoinedByString:@"\n"];
+    }
     // 直接读日志文件的末尾：这样连"上一个进程崩溃前的最后几行"也能显示出来
     // （内存里的环形缓冲只属于当前进程，崩了就没东西可看）
     NSString *p = YBLogFilePath();

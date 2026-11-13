@@ -27,6 +27,9 @@ static BOOL YBIsYuanbaoProcess(void) {
     return [exe containsString:@"hunyuan"] || [exe containsString:@"yuanbao"];
 }
 
+// 上一次进程（本进程启动之前）没跑完的话，把那段日志留一份，稍后自动摊到面板上
+static NSArray<NSString *> *gCrashReplay = nil;
+
 static void YBStartAfterLaunch(void) {
     // 通知与 5s 兜底两条路都可能进来，这里做全局幂等，避免重复装面板/排双定时器
     static BOOL gStarted = NO;
@@ -53,6 +56,13 @@ static void YBStartAfterLaunch(void) {
         // 不排每日定时器、不在启动时补做任务；一切等你自己点「执行」。
         YBSetTrace("install:done");
         YBLogSync(@"[模式] 手动运行模式：进入元宝不会自动执行任务，请点悬浮球 → 执行");
+
+        // 上次没跑完（崩了 / 被系统杀了）→ 直接把崩溃前的日志摊开，不用你自己去翻文件
+        if (gCrashReplay.count) {
+            YBLogSync(@"[崩溃回放] 上次运行没有正常结束，已自动打开面板显示崩溃前日志");
+            [YBUI showCrashReplay:gCrashReplay];
+            gCrashReplay = nil;
+        }
     });
 }
 
@@ -60,6 +70,11 @@ __attribute__((constructor))
 static void YBTweakInit(void) {
     @autoreleasepool {
         YBLogBootstrap();
+        // 关键：在读本进程的 "[启动]" 之前先判断上一次进程有没有跑完，
+        // 否则 slice 会切到本进程头上，什么都判断不出来。
+        if (YBLastRunUnfinished()) {
+            gCrashReplay = YBLastRunLogTail(20);
+        }
         YBLogEnableCrashHandler();   // 未捕获异常也写进日志，闪退能留痕
         YBLogInstallSignalHandlers(); // 野指针这类硬崩溃也留一行（含最后进行到哪步）
         YBSetTrace("constructor");
