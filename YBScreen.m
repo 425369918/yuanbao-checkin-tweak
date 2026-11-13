@@ -38,28 +38,27 @@ static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
 
 + (instancetype)capture {
     YBScreen *s = [YBScreen new];
-    // 窗口统一交给 YBTouch 挑：自己的浮窗、键盘窗都会被排除
-    UIWindow *root = [YBTouch keyWindow];
-    if (!root) { YBLogSync(@"[截图] 拿不到 App 窗口"); return s; }
-    if (root.bounds.size.width < 1 || root.bounds.size.height < 1) {
-        YBLogSync(@"[截图] 窗口尺寸为 0，跳过");
-        return s;
-    }
-    YBSetTrace("capture:1 截图开始");
-    YBLogSync(@"[截图] 窗口 %@ %.0fx%.0f", NSStringFromClass(root.class),
-              root.bounds.size.width, root.bounds.size.height);
+    YBSetTrace("capture:1 开始");
 
-    UIImage *img = nil;
-
-    // 优先用系统全屏截图：不触发 App 重绘，且能抓到 Metal/自绘内容。
-    // 它会把我们自己的浮窗也截进去，所以截之前先把自己的窗户藏起来，截完立刻恢复。
-    YBSetTrace("capture:2 私有截图");
+    // 第一优先：系统全屏截图。既不需要窗口对象（拿不到窗口也不会失败），
+    // 又不触发 App 重绘，还能抓到 Metal/自绘内容。
+    // 它会把我们自己的浮窗也截进去 → 截之前藏起来，截完立刻恢复。
     [YBTouch setOwnOverlaysHidden:YES];
-    img = YBScreenUIImagePrivate();
+    UIImage *img = YBScreenUIImagePrivate();
     [YBTouch setOwnOverlaysHidden:NO];
-    if (img) YBLogSync(@"[截图] 私有截图成功 %.0fx%.0f", img.size.width, img.size.height);
+    if (img) YBLogSync(@"[截图] 系统全屏截图 %.0fx%.0f", img.size.width, img.size.height);
 
-    if (!img) {
+    // 拿到窗口（后面算坐标要用；私有截图成功时只是顺手取一下）
+    UIWindow *root = [YBTouch keyWindow];
+    CGSize pts = root.bounds.size;
+    if (pts.width < 1 || pts.height < 1) pts = [UIScreen mainScreen].bounds.size;
+    if (root) {
+        YBLogSync(@"[截图] 窗口 %@ %.0fx%.0f", NSStringFromClass(root.class), pts.width, pts.height);
+    } else {
+        YBLogSync(@"[截图] 没拿到 App 窗口，按屏幕尺寸 %.0fx%.0f 处理", pts.width, pts.height);
+    }
+
+    if (!img && root) {
         // 兜底 1：读当前画面，不强制 App 重新渲染
         YBSetTrace("capture:3 drawViewHierarchy");
         @try {
@@ -71,7 +70,7 @@ static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
             YBLogSync(@"[截图] drawViewHierarchy 异常: %@", e.reason);
         }
     }
-    if (!img) {
+    if (!img && root) {
         // 兜底 2：直接渲染 layer（拿不到 Metal 内容，但不会崩）
         YBSetTrace("capture:4 renderInContext");
         @try {
@@ -88,8 +87,8 @@ static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
     // 全屏 3x 图直接丢给 Vision 又慢又吃内存（容易触发系统因内存压力杀进程），先缩到长边 1280
     UIImage *small = YBScaleDown(img, 1280);
     s.image = small;
-    s.pointSize = root.bounds.size;
-    s.scale = (root.bounds.size.width > 1) ? (small.size.width / root.bounds.size.width) : 1.0;
+    s.pointSize = pts;
+    s.scale = (pts.width > 1) ? (small.size.width / pts.width) : 1.0;
     YBLogSync(@"[截图] 完成 %.0fx%.0f -> OCR 输入 %.0fx%.0f (scale %.2f)",
               img.size.width, img.size.height, small.size.width, small.size.height, s.scale);
     YBSetTrace("capture:done");
