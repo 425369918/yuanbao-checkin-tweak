@@ -93,6 +93,36 @@ static BOOL YBIsOwnOverlay(UIWindow *w) {
     return best;
 }
 
+// App 的所有可见窗口（不含自己的浮窗）—— H5 页面可能在别的窗口里，所以要全拿
++ (NSArray<UIWindow *> *)appWindows {
+    NSMutableArray<UIWindow *> *out = [NSMutableArray array];
+    NSMutableArray<UIWindow *> *cand = [NSMutableArray array];
+    @try {
+        for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
+            if (![sc isKindOfClass:UIWindowScene.class]) continue;
+            NSArray *ws = ((UIWindowScene *)sc).windows;
+            if ([ws isKindOfClass:NSArray.class]) for (UIWindow *w in ws) if (w) [cand addObject:w];
+        }
+    } @catch (NSException *e) { }
+    @try {
+        id dg = UIApplication.sharedApplication.delegate;
+        if ([dg respondsToSelector:@selector(window)]) {
+            UIWindow *w = [(id)dg window];
+            if (w) [cand addObject:w];
+        }
+    } @catch (NSException *e) { }
+    for (UIWindow *w in cand) {
+        @try {
+            if (YBIsOwnOverlay(w)) continue;
+            if (w.hidden || w.alpha < 0.01) continue;
+            if (w.windowLevel > 10) continue;
+            if (w.bounds.size.width < 1 || w.bounds.size.height < 1) continue;
+            if (![out containsObject:w]) [out addObject:w];
+        } @catch (NSException *e) { }
+    }
+    return out;
+}
+
 // 一次性诊断：把 App 的 UI 框架、窗口、根控制器、根视图子类打出来
 // 这几行决定了"到底能不能用视图树取文字，还是只能靠 OCR 点坐标"
 + (void)logDiagnostics {

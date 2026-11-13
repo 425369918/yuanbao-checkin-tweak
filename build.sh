@@ -87,7 +87,7 @@ log "============================================="
 [ -d "$SDK/usr/include" ] || die "SDK 不完整：$SDK（缺少 usr/include）"
 
 # ---------- 源文件 ----------
-SRC=(Tweak.m YBEngine.m YBTouch.m YBScreen.m YBConfig.m YBStep.m YBLog.m YBUI.m)
+SRC=(Tweak.m YBEngine.m YBTouch.m YBScreen.m YBWeb.m YBConfig.m YBStep.m YBLog.m YBUI.m)
 for f in "${SRC[@]}"; do
   [ -f "$f" ] || die "缺少源文件: $f"
 done
@@ -117,7 +117,7 @@ set -x
   -Wno-deprecated-declarations -Wno-unused-variable \
   -I. \
   ${EXTRA_CFLAGS} \
-  -framework Foundation -framework UIKit -framework Vision \
+  -framework Foundation -framework UIKit -framework Vision -framework WebKit \
   -framework CoreGraphics -framework CoreImage -framework QuartzCore \
   "${SRC[@]}" \
   "${LINK_FLAGS[@]}" \

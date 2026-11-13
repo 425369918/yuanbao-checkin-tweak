@@ -29,6 +29,7 @@ extern NSString *const YBEngineRunStateChanged; // userInfo["running"] = @(BOOL)
 - (void)testTextTree;  // 只取视图树里的文字（判断能不能完全不依赖 OCR）
 - (void)probeWelfare;  // 点进福利中心并把页面全部文字打出来（校准锚点用）
 - (void)diagnoseWelfare; // 诊断「福利中心」每个候选的位置/可点性/点击效果
-- (void)autoWelfare;    // 真正干活：进福利中心 -> 打卡 -> 领奖励（纯视图树，手动触发）
+- (void)autoWelfare;    // 真正干活：进福利中心 -> 打卡 -> 领奖励（纯视图树/H5，手动触发）
+- (void)probeWeb;       // 只读 H5 页面文字（判断福利中心是不是 WebView）
 @end
 NS_ASSUME_NONNULL_END

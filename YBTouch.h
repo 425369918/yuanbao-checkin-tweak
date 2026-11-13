@@ -5,6 +5,7 @@ NS_ASSUME_NONNULL_BEGIN
 // 进程内“点按”：不走 root/input，直接命中视图树触发控件/手势。
 @interface YBTouch : NSObject
 + (UIWindow *)keyWindow;                            // 尽量拿到 App 自己的那个窗口
++ (NSArray<UIWindow *> *)appWindows;                 // App 的所有可见窗口（不含自己的浮窗）
 + (void)registerOwnWindow:(UIWindow *)w;            // 把自己的悬浮窗登记进来，永远不当作 App 窗口
 + (void)setOwnOverlaysHidden:(BOOL)hidden;          // 截图时临时藏起自己的浮窗
 + (void)logDiagnostics;                             // 打一行环境/窗口/控件诊断到日志（排查用）

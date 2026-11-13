@@ -4,6 +4,7 @@
 #import "YBConfig.h"
 #import "YBStep.h"
 #import "YBLog.h"
+#import "YBWeb.h"
 #import <Vision/Vision.h>
 
 @interface YBEngine ()
@@ -18,6 +19,7 @@
 - (void)probeWelfare;
 - (void)diagnoseWelfare;
 - (void)autoWelfare;
+- (void)probeWeb;
 - (NSArray<NSString *> *)dumpTextsNow;
 - (BOOL)pageHasAny:(NSArray<NSString *> *)keys;
 - (void)logTexts:(NSArray<NSString *> *)texts tag:(NSString *)tag;
@@ -319,6 +321,13 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
         }
         [self logTexts:[self dumpTextsNow] tag:@"打卡"];
 
+        // 1.5) 这个页面如果是 H5，就走 WebView 通道（UIKit 里只有个「返回」，读不到正文）
+        YBSetTrace("auto:1b 判断H5");
+        [YBWeb logSummary];
+        NSArray<UIView *> *wvs = [YBWeb webViews];
+        BOOL isH5 = wvs.count > 0;
+        YBLogSync(@"[打卡] H5 通道: %@", isH5 ? @"开启" : @"关闭（走原生视图树）");
+
         // 2) 按锚点依次尝试：签到 / 打卡 / 领奖励 / 弹窗确认
         NSArray<NSString *> *anchors = @[
             @"签到", @"打卡", @"立即签到", @"签到领积分",
@@ -329,7 +338,9 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
         for (NSString *a in anchors) {
             if (self.stopRequested) break;
             YBSetTrace("auto:3 试锚点");
-            BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[a] ]; }];
+            BOOL ok = NO;
+            if (isH5) ok = [YBWeb tapText:@[a]];
+            else      ok = [self onMain:^BOOL{ return [YBTouch tapText:@[a] ]; }];
             YBLogSync(@"[打卡] 锚点「%@」-> %@", a, ok ? @"已触发" : @"无此文字/没生效");
             if (ok) { hitCount++; [NSThread sleepForTimeInterval:1.2]; }
         }
@@ -337,11 +348,32 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
 
         // 3) 收尾再打一次页面文字，确认结果
         YBSetTrace("auto:4 收尾");
+        if (isH5) {
+            NSString *t = [YBWeb textOfFirstWeb];
+            if (t.length) {
+                YBLogSync(@"[打卡完成] H5 正文 %lu 字: %@", (unsigned long)t.length,
+                          [t substringToIndex:MIN(t.length, (NSUInteger)300)]);
+            } else {
+                YBLogSync(@"[打卡完成] 读不到 H5 正文");
+            }
+        }
         [self logTexts:[self dumpTextsNow] tag:@"打卡完成"];
         YBSetTrace("auto:done");
         YBLogSync(@"===== 自动打卡结束 =====");
         [self setRunning:NO];
         [self endBG];
+    });
+}
+
+// 自检 H：只读 H5 页面（不点任何东西）—— 判断福利中心到底是不是 H5、里面写了什么
+- (void)probeWeb {
+    if (self.running) { YBLogSync(@"[自检H] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检H 开始（读 H5 页面） =====");
+        YBSetTrace("H:1 找WebView");
+        [YBWeb logSummary];
+        YBSetTrace("H:done");
+        YBLogSync(@"===== 自检H 结束 =====");
     });
 }
 

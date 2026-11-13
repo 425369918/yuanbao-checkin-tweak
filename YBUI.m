@@ -239,31 +239,35 @@ static NSString *YBExtractText(UIView *v) {
     [p addSubview:go];
     YBLogSync(@"[面板] 3 执行按钮 OK");
 
-    // 下面几个是排查用的：E 进页面看文字、F 看候选能不能点、D 只读文字、A 只截图
+    // 排查按钮：H 读 H5 页面、E 进页面看文字、F 看候选能不能点、D 只读文字、A 只截图
+    UIButton *stH = [self mkButton:@"H 读 H5 页面文字（判断是不是网页）" color:[UIColor colorWithRed:0.42 green:0.20 blue:0.60 alpha:1] action:@selector(probeWeb)];
+    stH.frame = CGRectMake(14, 72, w - 28, 26);
+    [p addSubview:stH];
+
     UIButton *stE = [self mkButton:@"E 进福利中心 + 打印页面文字" color:[UIColor colorWithRed:0.55 green:0.32 blue:0.10 alpha:1] action:@selector(probeWelfare)];
-    stE.frame = CGRectMake(14, 74, w - 28, 28);
+    stE.frame = CGRectMake(14, 101, w - 28, 26);
     [p addSubview:stE];
 
     UIButton *stF = [self mkButton:@"F 诊断：福利中心能不能点" color:[UIColor colorWithRed:0.55 green:0.16 blue:0.16 alpha:1] action:@selector(diagnoseWelfare)];
-    stF.frame = CGRectMake(14, 106, w - 28, 28);
+    stF.frame = CGRectMake(14, 130, w - 28, 26);
     [p addSubview:stF];
 
     UIButton *stD = [self mkButton:@"D 只取视图树文字" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(testTextTree)];
-    stD.frame = CGRectMake(14, 138, (w - 34) / 2, 26);
+    stD.frame = CGRectMake(14, 159, (w - 34) / 2, 24);
     [p addSubview:stD];
 
     UIButton *stA = [self mkButton:@"A 只截图（诊断）" color:[UIColor colorWithRed:0.20 green:0.32 blue:0.52 alpha:1] action:@selector(testCapture)];
-    stA.frame = CGRectMake(14 + (w - 34) / 2 + 6, 138, (w - 34) / 2, 26);
+    stA.frame = CGRectMake(14 + (w - 34) / 2 + 6, 159, (w - 34) / 2, 24);
     [p addSubview:stA];
     YBLogSync(@"[面板] 4 按钮 OK");
 
     UIButton *cl = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
-    cl.frame = CGRectMake(14, 168, w - 28, 26);
+    cl.frame = CGRectMake(14, 187, w - 28, 24);
     [p addSubview:cl];
     YBLogSync(@"[面板] 5 按钮全部 OK");
 
-    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 198, w - 28, 128)];
-    lg.numberOfLines = 20;
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 216, w - 28, 112)];
+    lg.numberOfLines = 17;
     lg.font = [UIFont systemFontOfSize:7.5];
     lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
     lg.text = [self logText];
@@ -272,7 +276,7 @@ static NSString *YBExtractText(UIView *v) {
     [self startLogTimer];
 
     YBSetTrace("panel:done");
-    YBLogSync(@"[面板] 6 全部 OK（视图树模式）");
+    YBLogSync(@"[面板] 6 全部 OK（视图树 + H5 模式）");
 }
 
 - (NSString *)logText {
@@ -325,6 +329,7 @@ static NSString *YBExtractText(UIView *v) {
 - (void)testTextTree { [[YBEngine shared] testTextTree]; }
 - (void)probeWelfare { [[YBEngine shared] probeWelfare]; }
 - (void)diagnoseWelfare { [[YBEngine shared] diagnoseWelfare]; }
+- (void)probeWeb { [[YBEngine shared] probeWeb]; }
 
 - (void)stopRun { [[YBEngine shared] stop]; }
 
