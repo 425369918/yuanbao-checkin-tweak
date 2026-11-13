@@ -1,4 +1,5 @@
 #import "YBScreen.h"
+#import "YBTouch.h"
 #import "YBLog.h"
 #import <Vision/Vision.h>
 
@@ -6,24 +7,15 @@
 
 + (instancetype)capture {
     YBScreen *s = [YBScreen new];
-    UIView *root = nil;
-    for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
-        if (![sc isKindOfClass:UIWindowScene.class]) continue;
-        for (UIWindow *w in ((UIWindowScene *)sc).windows) {
-            if ([w isKindOfClass:NSClassFromString(@"YBPassWindow")]) continue;  // 跳过自己的悬浮窗
-            if (w.isKeyWindow) { root = w; break; }
-        }
-        if (root) break;
-    }
-    if (!root) {
-        UIWindow *app = UIApplication.sharedApplication.keyWindow;
-        if (app && ![app isKindOfClass:NSClassFromString(@"YBPassWindow")]) root = app;
-    }
-    if (!root) { YBLog(@"[截图] 没有 key window"); return s; }
+    // 窗口统一交给 YBTouch 挑：自己的浮窗、键盘窗都会被排除
+    UIWindow *root = [YBTouch keyWindow];
+    if (!root) { YBLog(@"[截图] 拿不到 App 窗口"); return s; }
     if (root.bounds.size.width < 1 || root.bounds.size.height < 1) {
-        YBLog(@"[截图] key window 尺寸为 0，跳过");
+        YBLog(@"[截图] 窗口尺寸为 0，跳过");
         return s;
     }
+    YBLog(@"[截图] 用窗口 %@ %.0fx%.0f", NSStringFromClass(root.class),
+          root.bounds.size.width, root.bounds.size.height);
 
     UIGraphicsBeginImageContextWithOptions(root.bounds.size, NO, 0);
     [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:YES];

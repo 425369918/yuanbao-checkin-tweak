@@ -16,6 +16,7 @@
 - (void)runOneTask:(NSString *)task count:(NSInteger)count auto:(BOOL)autoFill;
 - (BOOL)performStep:(YBStep *)s;
 - (BOOL)ocrTap:(NSArray<NSString *> *)keys;
+- (BOOL)ocrVisible:(NSArray<NSString *> *)keys;
 - (BOOL)visibleTextMatches:(NSArray<NSString *> *)keys;
 - (void)onMainVoid:(dispatch_block_t)block;
 - (BOOL)onMain:(BOOL(^)(void))block;
@@ -75,6 +76,8 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
         YBSetTrace("run:start");
         YBLogSync(@"===== 开始，任务 %@ count=%@ auto=%@ =====",
                   list, count > 0 ? @(count) : @"默认", autoFill ? @"是" : @"否");
+        // 一次性把窗口/UI 框架/视图树文字打出来，版本不匹配时靠这几行定位
+        [self onMainVoid:^{ [YBTouch logDiagnostics]; }];
         for (NSString *task in list) {
             if (self.stopRequested) { YBLog(@"[停止] 收到停止请求"); break; }
             YBSetTrace("run:task");
@@ -150,9 +153,26 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     [self onMainVoid:^{ sc = [YBScreen capture]; }];
     [sc runOCR];
     CGPoint p = [sc centerOfTextContaining:keys];
-    if (CGPointEqualToPoint(p, CGPointZero)) { YBLog(@"[OCR点按] 未找到 %@", keys); return NO; }
+    if (CGPointEqualToPoint(p, CGPointZero)) {
+        // 找不到时把 OCR 实际看到的文字打出来 —— 版本不匹配时一眼就能看出该改成哪几个字
+        NSMutableArray *seen = [NSMutableArray array];
+        for (NSDictionary *d in [sc lineDicts]) {
+            if (seen.count >= 20) break;
+            [seen addObject:d[@"text"]];
+        }
+        YBLog(@"[OCR点按] 未找到 %@；屏幕文字: %@", keys,
+              seen.count ? [seen componentsJoinedByString:@" / "] : @"(OCR 没认出任何文字)");
+        return NO;
+    }
     CGPoint pt = p;
     return [self onMain:^BOOL{ return [YBTouch tapPoint:pt]; }];
+}
+
+- (BOOL)ocrVisible:(NSArray<NSString *> *)keys {
+    __block YBScreen *sc = nil;
+    [self onMainVoid:^{ sc = [YBScreen capture]; }];
+    [sc runOCR];
+    return !CGPointEqualToPoint([sc centerOfTextContaining:keys], CGPointZero);
 }
 
 - (BOOL)visibleTextMatches:(NSArray<NSString *> *)keys {
@@ -165,7 +185,9 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
             }
         }
     }];
-    return hit;
+    if (hit) return YES;
+    // 视图树里取不到文字（元宝这种自绘 UI 很常见）→ 再让 OCR 看一遍
+    return [self ocrVisible:keys];
 }
 
 - (void)onMainVoid:(dispatch_block_t)block {

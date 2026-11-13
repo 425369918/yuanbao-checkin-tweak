@@ -11,23 +11,96 @@
 
 @implementation YBTouch
 
+static NSHashTable *gOwnWindows = nil;
+
 static BOOL YBIsOwnOverlay(UIWindow *w) {
-    return [w isKindOfClass:NSClassFromString(@"YBPassWindow")];
+    if (!w) return NO;
+    static Class ownCls = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ ownCls = NSClassFromString(@"YBPassWindow"); });
+    if (ownCls && [w isKindOfClass:ownCls]) return YES;
+    @synchronized (gOwnWindows ?: (gOwnWindows = [NSHashTable weakObjectsHashTable])) {
+        for (UIWindow *o in gOwnWindows) if (o == w) return YES;
+    }
+    return NO;
 }
 
++ (void)registerOwnWindow:(UIWindow *)w {
+    if (!w) return;
+    if (!gOwnWindows) gOwnWindows = [NSHashTable weakObjectsHashTable];
+    @synchronized (gOwnWindows) { [gOwnWindows addObject:w]; }
+    YBLog(@"[窗口] 已登记自己的悬浮窗 %@ level=%.0f", NSStringFromClass(w.class), w.windowLevel);
+}
+
+// 拿 App 自己的窗口：key window 常常不可靠（我们自己的浮窗、键盘窗、弹窗各占一个 level），
+// 所以按"可见 + 不是自己的 + 层级最低 + 面积最大"来挑。
 + (UIWindow *)keyWindow {
-    UIWindow *fallback = nil;
-    for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
-        if (![sc isKindOfClass:UIWindowScene.class]) continue;
-        for (UIWindow *w in ((UIWindowScene *)sc).windows) {
-            if (YBIsOwnOverlay(w)) continue;          // 别拿到自己的悬浮窗
-            if (w.isKeyWindow) return w;
-            if (!fallback && !w.hidden && w.windowLevel <= UIWindowLevelNormal + 1) fallback = w;
+    NSMutableArray<UIWindow *> *cand = [NSMutableArray array];
+    @try {
+        for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
+            if (![sc isKindOfClass:UIWindowScene.class]) continue;
+            for (UIWindow *w in ((UIWindowScene *)sc).windows) if (w) [cand addObject:w];
+        }
+    } @catch (NSException *e) { YBLog(@"[窗口] 枚举 scene 异常: %@", e.reason); }
+    // 老 API 兜底（iOS 16 上仍能用）
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    for (UIWindow *w in UIApplication.sharedApplication.windows) if (w) [cand addObject:w];
+#pragma clang diagnostic pop
+
+    UIWindow *best = nil;
+    CGFloat bestArea = 0;
+    NSInteger bestLevel = 999999;
+    for (UIWindow *w in cand) {
+        if (YBIsOwnOverlay(w)) continue;
+        if (w.hidden || w.alpha < 0.01) continue;
+        if (w.windowLevel > 10) continue;                 // 键盘/系统窗跳过
+        if (w.bounds.size.width < 1 || w.bounds.size.height < 1) continue;
+        CGFloat area = w.bounds.size.width * w.bounds.size.height;
+        // 面积大优先；同面积取层级低的
+        if (area > bestArea || (area == bestArea && w.windowLevel < bestLevel)) {
+            best = w; bestArea = area; bestLevel = (NSInteger)w.windowLevel;
         }
     }
+    if (best) return best;
+
+    // 最后一层：App 的 delegate.window
+    @try {
+        id dg = UIApplication.sharedApplication.delegate;
+        if ([dg respondsToSelector:@selector(window)]) {
+            UIWindow *w = [(id)dg window];
+            if (w && !YBIsOwnOverlay(w) && !w.hidden) return w;
+        }
+    } @catch (NSException *e) { }
+
     UIWindow *app = UIApplication.sharedApplication.keyWindow;
     if (app && !YBIsOwnOverlay(app)) return app;
-    return fallback ?: app;
+    return nil;
+}
+
+// 一次性诊断：把 App 的 UI 框架、窗口、根控制器、根视图子类打出来
+// 这几行决定了"到底能不能用视图树取文字，还是只能靠 OCR 点坐标"
++ (void)logDiagnostics {
+    UIWindow *w = [self keyWindow];
+    if (!w) { YBLog(@"[诊断] 仍然拿不到 App 窗口"); return; }
+    YBLog(@"[诊断] 窗口 %@ level=%.0f %.0fx%.0f key=%d",
+          NSStringFromClass(w.class), w.windowLevel, w.bounds.size.width, w.bounds.size.height, w.isKeyWindow);
+    UIViewController *vc = w.rootViewController;
+    YBLog(@"[诊断] 根控制器 %@", vc ? NSStringFromClass(vc.class) : @"(nil)");
+    UIView *rv = vc.view ?: w;
+    NSMutableArray *cls = [NSMutableArray array];
+    NSUInteger n = MIN(rv.subviews.count, (NSUInteger)8);
+    for (NSUInteger i = 0; i < n; i++) [cls addObject:NSStringFromClass([rv.subviews[i] class])];
+    YBLog(@"[诊断] 根视图 %@ 子视图(%lu): %@", NSStringFromClass(rv.class),
+          (unsigned long)rv.subviews.count, [cls componentsJoinedByString:@", "]);
+    NSArray<NSString *> *texts = [self dumpVisibleTexts];
+    NSMutableArray *pick = [NSMutableArray array];
+    for (NSString *t in texts) {
+        if (pick.count >= 30) break;
+        [pick addObject:t];
+    }
+    YBLog(@"[诊断] 视图树可见文字 %lu 条: %@", (unsigned long)texts.count,
+          [pick componentsJoinedByString:@" / "]);
 }
 
 // 视图“自己身上的文字”

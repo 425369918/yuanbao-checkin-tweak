@@ -129,6 +129,7 @@ static NSString *YBExtractText(UIView *v) {
     w.rootViewController = vc;
     w.hidden = NO;
     self.overlay = w;
+    [YBTouch registerOwnWindow:w];      // 登记：取 App 窗口时永远跳过它
     return w;
 }
 
