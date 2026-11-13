@@ -25,7 +25,8 @@ extern NSString *const YBEngineRunStateChanged; // userInfo["running"] = @(BOOL)
 // 用来把"点执行就闪"拆开定位：这一步崩就是截图/OCR 的问题，不崩就是任务流程的问题。
 - (void)selfTest;
 - (void)testCapture;   // 只截图
-- (void)testOCR;       // 截图 + OCR
+- (void)testOCR;       // 截图 + OCR（已废弃：Vision 在本进程会崩，仅留作取证）
 - (void)testTextTree;  // 只取视图树里的文字（判断能不能完全不依赖 OCR）
+- (void)probeWelfare;  // 点进福利中心并把页面全部文字打出来（校准锚点用）
 @end
 NS_ASSUME_NONNULL_END

@@ -15,8 +15,7 @@
 - (void)setRunning:(BOOL)running;
 - (void)runOneTask:(NSString *)task count:(NSInteger)count auto:(BOOL)autoFill;
 - (BOOL)performStep:(YBStep *)s;
-- (BOOL)ocrTap:(NSArray<NSString *> *)keys;
-- (BOOL)ocrVisible:(NSArray<NSString *> *)keys;
+- (void)probeWelfare;
 - (BOOL)visibleTextMatches:(NSArray<NSString *> *)keys;
 - (void)onMainVoid:(dispatch_block_t)block;
 - (BOOL)onMain:(BOOL(^)(void))block;
@@ -39,16 +38,9 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
 }
 
 - (void)warmUp {
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-        UIGraphicsBeginImageContextWithOptions(CGSizeMake(8, 8), NO, 1);
-        UIImage *img = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-        VNRecognizeTextRequest *r = [[VNRecognizeTextRequest alloc] init];
-        r.recognitionLanguages = @[@"zh-Hans"];
-        VNImageRequestHandler *h = [[VNImageRequestHandler alloc] initWithCGImage:img.CGImage options:@{}];
-        [h performRequests:@[r] error:NULL];
-        YBLog(@"[预热] Vision 就绪");
-    });
+    // 曾经这里预热 Vision，实测 Vision 的 performRequests 在元宝进程里必崩（见 v11/v12），
+    // 现在已经彻底不用 OCR，也就不再碰 Vision —— 少加载一个框架，少一个崩溃面。
+    YBLog(@"[预热] 已启用纯视图树模式（不加载 Vision）");
 }
 
 - (void)stop { self.stopRequested = YES; }
@@ -137,13 +129,14 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
         }
 
         case YBStepTapText: {
-            BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:s.keys]; }];
-            if (!ok) ok = [self ocrTap:s.keys];
-            return ok;
+            // 只用视图树：实测 Vision 在这个注入进程里 performRequests 必崩，OCR 已彻底弃用
+            return [self onMain:^BOOL{ return [YBTouch tapText:s.keys]; }];
         }
 
-        case YBStepTapOCR:
-            return [self ocrTap:s.keys];
+        case YBStepTapOCR: {
+            // 老配置里写的是"OCR 点按"，现在统一走视图树
+            return [self onMain:^BOOL{ return [YBTouch tapText:s.keys]; }];
+        }
 
         case YBStepInputText:
             return [self onMain:^BOOL{ return [YBTouch inputText:s.text nearKeys:s.keys]; }];
@@ -188,9 +181,7 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
             }
         }
     }];
-    if (hit) return YES;
-    // 视图树里取不到文字（元宝这种自绘 UI 很常见）→ 再让 OCR 看一遍
-    return [self ocrVisible:keys];
+    return hit;
 }
 
 - (void)onMainVoid:(dispatch_block_t)block {
@@ -272,6 +263,37 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
                   seen.count ? [seen componentsJoinedByString:@" / "] : @"(0 行，画面可能是空白)");
         YBSetTrace("B:done");
         YBLogSync(@"===== 自检B 结束 =====");
+    });
+}
+
+// 自检 E：点「福利中心」进去，然后把页面上的全部文字分条打出来
+// —— 拿到这一版元宝福利中心的真实按钮文案，锚点表才能照着它写
+- (void)probeWelfare {
+    if (self.running) { YBLogSync(@"[自检E] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检E 开始（点福利中心 + 打印页面文字） =====");
+        YBSetTrace("E:1 点福利中心");
+        BOOL ok = [self onMain:^BOOL{ return [YBTouch tapText:@[@"福利中心", @"福利"] ]; }];
+        YBLogSync(@"[自检E] 点「福利中心」-> %@", ok ? @"已触发" : @"没找到/没触发");
+        [NSThread sleepForTimeInterval:2.0];
+
+        for (int round = 1; round <= 3; round++) {
+            YBSetTrace("E:2 读页面文字");
+            __block NSArray<NSString *> *texts = nil;
+            [self onMainVoid:^{ texts = [YBTouch dumpVisibleTexts]; }];
+            YBLogSync(@"[自检E] 第%d次 共 %lu 条", round, (unsigned long)texts.count);
+            NSMutableString *line = [NSMutableString string];
+            NSInteger inLine = 0;
+            for (NSString *t in texts) {
+                if (inLine >= 5) { YBLogSync(@"[E] %@", line); [line setString:@""]; inLine = 0; }
+                [line appendFormat:@"%@ / ", t];
+                inLine++;
+            }
+            if (line.length) YBLogSync(@"[E] %@", line);
+            [NSThread sleepForTimeInterval:1.2];
+        }
+        YBSetTrace("E:done");
+        YBLogSync(@"===== 自检E 结束 =====");
     });
 }
 

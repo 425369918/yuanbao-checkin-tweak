@@ -214,7 +214,7 @@ static NSString *YBExtractText(UIView *v) {
         return;
     }
     CGFloat w = MIN(MAX(win.bounds.size.width - 40, 240), 340);
-    CGFloat h = 362;
+    CGFloat h = 340;
     CGRect f = CGRectMake((win.bounds.size.width - w) / 2, (win.bounds.size.height - h) / 2, w, h);
 
     UIView *p = [[UIView alloc] initWithFrame:f];
@@ -234,36 +234,33 @@ static NSString *YBExtractText(UIView *v) {
     [p addSubview:t];
     YBLogSync(@"[面板] 2 标题 OK");
 
-    UIButton *go = [self mkButton:@"▶ 执行全部任务" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
+    UIButton *go = [self mkButton:@"▶ 执行全部任务（视图树，不用OCR）" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
     go.frame = CGRectMake(14, 36, w - 28, 34);
     [p addSubview:go];
     YBLogSync(@"[面板] 3 执行按钮 OK");
 
-    // 自检拆成三段：哪一段崩，就把问题锁死在哪一段
-    UIButton *stA = [self mkButton:@"A 只截图" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(testCapture)];
-    stA.frame = CGRectMake(14, 74, (w - 34) / 2, 28);
-    [p addSubview:stA];
+    // Vision 的 performRequests 在元宝进程里必崩（已由 A/B 两段实机验证），
+    // 所以 OCR 按钮全部撤掉，只留视图树通道的三个按钮。
+    UIButton *stE = [self mkButton:@"E 进福利中心 + 打印页面文字" color:[UIColor colorWithRed:0.55 green:0.32 blue:0.10 alpha:1] action:@selector(probeWelfare)];
+    stE.frame = CGRectMake(14, 74, w - 28, 30);
+    [p addSubview:stE];
 
-    UIButton *stB = [self mkButton:@"B 截图+OCR" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(testOCR)];
-    stB.frame = CGRectMake(14 + (w - 34) / 2 + 6, 74, (w - 34) / 2, 28);
-    [p addSubview:stB];
-    YBLogSync(@"[面板] 4 自检 A/B OK");
-
-    UIButton *stC = [self mkButton:@"C 截图+OCR+点福利中心" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(selfTest)];
-    stC.frame = CGRectMake(14, 106, w - 28, 28);
-    [p addSubview:stC];
-
-    UIButton *stD = [self mkButton:@"D 只取视图树文字（不截图不OCR）" color:[UIColor colorWithRed:0.20 green:0.32 blue:0.52 alpha:1] action:@selector(testTextTree)];
-    stD.frame = CGRectMake(14, 138, w - 28, 28);
+    UIButton *stD = [self mkButton:@"D 只取视图树文字" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(testTextTree)];
+    stD.frame = CGRectMake(14, 108, (w - 34) / 2, 28);
     [p addSubview:stD];
 
+    UIButton *stA = [self mkButton:@"A 只截图（诊断）" color:[UIColor colorWithRed:0.20 green:0.32 blue:0.52 alpha:1] action:@selector(testCapture)];
+    stA.frame = CGRectMake(14 + (w - 34) / 2 + 6, 108, (w - 34) / 2, 28);
+    [p addSubview:stA];
+    YBLogSync(@"[面板] 4 按钮 OK");
+
     UIButton *cl = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
-    cl.frame = CGRectMake(14, 170, w - 28, 26);
+    cl.frame = CGRectMake(14, 140, w - 28, 26);
     [p addSubview:cl];
     YBLogSync(@"[面板] 5 按钮全部 OK");
 
-    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 200, w - 28, 122)];
-    lg.numberOfLines = 19;
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 172, w - 28, 148)];
+    lg.numberOfLines = 23;
     lg.font = [UIFont systemFontOfSize:7.5];
     lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
     lg.text = [self logText];
@@ -272,7 +269,7 @@ static NSString *YBExtractText(UIView *v) {
     [self startLogTimer];
 
     YBSetTrace("panel:done");
-    YBLogSync(@"[面板] 6 全部 OK（最小面板）");
+    YBLogSync(@"[面板] 6 全部 OK（视图树模式）");
 }
 
 - (NSString *)logText {
@@ -323,6 +320,7 @@ static NSString *YBExtractText(UIView *v) {
 - (void)testCapture { [[YBEngine shared] testCapture]; }
 - (void)testOCR { [[YBEngine shared] testOCR]; }
 - (void)testTextTree { [[YBEngine shared] testTextTree]; }
+- (void)probeWelfare { [[YBEngine shared] probeWelfare]; }
 
 - (void)stopRun { [[YBEngine shared] stop]; }
 
