@@ -84,6 +84,8 @@ static NSString *YBExtractText(UIView *v) {
 @property (nonatomic, weak) UILabel *timeLabel;
 @property (nonatomic, strong) UIWindow *overlay;
 - (NSString *)logText;
+- (void)startLogTimer;
+- (void)tickLog;
 @end
 
 @implementation YBUI
@@ -156,9 +158,10 @@ static NSString *YBExtractText(UIView *v) {
 - (void)onRunState:(NSNotification *)n {
     BOOL running = [n.userInfo[@"running"] boolValue];
     dispatch_async(dispatch_get_main_queue(), ^{
-        self.ball.hidden = running;                 // 跑的时候藏起来，别被自己 OCR 认进去
-        if (self.panel && running) { self.panel.hidden = YES; }
-        if (self.panel && !running) { self.panel.hidden = NO; }
+        self.ball.hidden = running;         // 只把球藏起来（免得被自己的 OCR 认进去）
+        // 面板不隐藏：跑任务的时候正好在这里看着日志一行行往下走
+        if (self.logLabel) self.logLabel.text = [self logText];
+        YBLogSync(@"[界面] 运行状态 -> %@", running ? @"开始（面板保持可见）" : @"结束");
     });
 }
 
@@ -238,6 +241,7 @@ static NSString *YBExtractText(UIView *v) {
     lg.text = [self logText];
     [p addSubview:lg];
     self.logLabel = lg;
+    [self startLogTimer];
 
     YBSetTrace("panel:done");
     YBLogSync(@"[面板] 5 全部 OK（最小面板）");
@@ -255,6 +259,18 @@ static NSString *YBExtractText(UIView *v) {
     }
     NSArray<NSString *> *t = YBLogTail(8);
     return t ? [t componentsJoinedByString:@"\n"] : @"";
+}
+
+// 面板里的日志实时滚动（target/selector 版定时器，不用 block 版）
+- (void)startLogTimer {
+    [self.logTimer invalidate];
+    self.logTimer = [NSTimer timerWithTimeInterval:1.0 target:self selector:@selector(tickLog) userInfo:nil repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:self.logTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)tickLog {
+    if (!self.logLabel) { [self.logTimer invalidate]; self.logTimer = nil; return; }
+    self.logLabel.text = [self logText];
 }
 
 - (UILabel *)label:(NSString *)t y:(CGFloat)y w:(CGFloat)w pad:(CGFloat)pad {

@@ -6,6 +6,7 @@
 @interface YBTouch ()
 + (UIView *)_enclosingTable:(UIView *)v;
 + (UIView *)deepHit:(CGPoint)pt in:(UIView *)root;
++ (BOOL)activateView:(UIView *)v;
 @end
 
 @implementation YBTouch
@@ -58,8 +59,13 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
     __block CGFloat bestArea = CGFLOAT_MAX;
 
     // 广度优先遍历（含 cell / collectionViewCell 内层）
+    // 限数量 + 限时：这里是主线程，元宝的视图树上万个节点，不能无限跑（否则卡死被系统看门狗杀掉）
     NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:root];
+    NSUInteger visits = 0;
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.2];
     while (queue.count) {
+        if (visits++ > 15000) { YBLog(@"[遍历] 节点超过上限，停止（可能没找到）"); break; }
+        if ((visits & 511) == 0 && [deadline timeIntervalSinceNow] < 0) { YBLog(@"[遍历] 超时 1.2s，停止"); break; }
         UIView *v = queue.firstObject; [queue removeObjectAtIndex:0];
         if (YBTextMatches(YBViewText(v), keys)) {
             // 优先可交互的祖先
@@ -84,7 +90,11 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
     if (!root) return @[];
     NSMutableArray *out = [NSMutableArray array];
     NSMutableArray<UIView *> *q = [NSMutableArray arrayWithObject:root];
+    NSUInteger visits = 0;
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.2];
     while (q.count) {
+        if (visits++ > 20000) break;
+        if ((visits & 511) == 0 && [deadline timeIntervalSinceNow] < 0) break;
         UIView *v = q.firstObject; [q removeObjectAtIndex:0];
         NSString *t = YBViewText(v);
         if (t.length && !v.hidden && v.alpha > 0.01) [out addObject:t];
@@ -93,25 +103,44 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
     return out;
 }
 
-// 触发手势识别器里的 target/action（UIControl 之外的兜底）
-static BOOL YBFireGestures(UIView *v) {
-    @try {
-        for (UIGestureRecognizer *g in v.gestureRecognizers) {
-            if (![g isKindOfClass:UITapGestureRecognizer.class]) continue;
-            NSArray *targets = [g valueForKey:@"_targets"];
-            for (id t in targets) {
-                id target = [t valueForKey:@"_target"];
-                NSString *action = NSStringFromSelector(NSSelectorFromString([t valueForKey:@"_action"]));
-                SEL sel = NSSelectorFromString(action);
-                if (target && sel && [target respondsToSelector:sel]) {
-                    YBLog(@"[点按] 触发手势 %@ -> %@", NSStringFromClass([target class]), action);
-                    ((void (*)(id, SEL, id))objc_msgSend)(target, sel, g);
-                    return YES;
-                }
+// 触发一个视图：按"最安全 → 兜底"的顺序来，全程只用公开 API
+// 1) UIControl 发 action
+// 2) 表格/集合 cell 走 delegate 选中
+// 3) UIAccessibility 的 accessibilityActivate（SwiftUI 也实现这个，公开 API，最稳）
+// 注意：原来那条"用 KVC 取 _targets/_action 再 objc_msgSend 打私有手势"的路已经删掉 ——
+// SwiftUI 的手势 target 是 Swift 闭包，objc_msgSend 用错 ABI 会直接野指针崩溃。
++ (BOOL)activateView:(UIView *)v {
+    UIView *cur = v;
+    int depth = 0;
+    while (cur && depth < 8) {
+        if ([cur isKindOfClass:UIControl.class]) {
+            UIControl *c = (UIControl *)cur;
+            if (c.enabled && !c.hidden) {
+                YBLog(@"[点按] UIControl %@ \"%@\"", NSStringFromClass(c.class), YBViewText(c));
+                [c sendActionsForControlEvents:UIControlEventTouchUpInside];
+                return YES;
             }
         }
-    } @catch (NSException *e) {
-        YBLog(@"[点按] 手势触发异常: %@", e.reason);
+        if ([cur isKindOfClass:UITableViewCell.class]) {
+            UITableView *tv = (UITableView *)[self _enclosingTable:cur];
+            NSIndexPath *ip = [tv indexPathForCell:(UITableViewCell *)cur];
+            if (tv.delegate && ip && [tv.delegate respondsToSelector:@selector(tableView:didSelectRowAtIndexPath:)]) {
+                YBLog(@"[点按] 选中 cell %@", ip);
+                [tv.delegate tableView:tv didSelectRowAtIndexPath:ip];
+                return YES;
+            }
+        }
+        // accessibilityActivate 必须包 @try：SwiftUI 的 accessibility 元素偶尔会往里抛异常
+        @try {
+            if ([cur accessibilityActivate]) {
+                YBLog(@"[点按] accessibilityActivate 成功 (%@)", NSStringFromClass(cur.class));
+                return YES;
+            }
+        } @catch (NSException *e) {
+            YBLog(@"[点按] accessibilityActivate 异常: %@", e.reason);
+        }
+        cur = cur.superview;
+        depth++;
     }
     return NO;
 }
@@ -137,39 +166,8 @@ static BOOL YBFireGestures(UIView *v) {
     if (!win) { YBLog(@"[点按] 无 key window"); return NO; }
     UIView *hit = [self deepHit:pt in:win];
     if (!hit) { YBLog(@"[点按] (%.0f,%.0f) 未命中任何视图", pt.x, pt.y); return NO; }
-
-    // 1) 向上找 UIControl
-    UIView *cur = hit;
-    while (cur) {
-        if ([cur isKindOfClass:UIControl.class]) {
-            UIControl *c = (UIControl *)cur;
-            if (c.enabled && !c.hidden) {
-                YBLog(@"[点按] (%.0f,%.0f) -> UIControl %@ \"%@\"",
-                      pt.x, pt.y, NSStringFromClass(c.class), YBViewText(c));
-                [c sendActionsForControlEvents:UIControlEventTouchUpInside];
-                return YES;
-            }
-        }
-        // 2) cell 直接走 delegate 选中
-        if ([cur isKindOfClass:UITableViewCell.class]) {
-            UITableView *tv = (UITableView *)[self _enclosingTable:cur];
-            NSIndexPath *ip = [tv indexPathForCell:(UITableViewCell *)cur];
-            if (tv.delegate && ip) {
-                YBLog(@"[点按] -> 选中 cell %@", ip);
-                if ([tv.delegate respondsToSelector:@selector(tableView:didSelectRowAtIndexPath:)])
-                    [tv.delegate tableView:tv didSelectRowAtIndexPath:ip];
-                return YES;
-            }
-        }
-        cur = cur.superview;
-    }
-    // 3) 手势兜底
-    cur = hit;
-    while (cur) { if (YBFireGestures(cur)) return YES; cur = cur.superview; }
-
-    // 4) 无障碍激活
-    if ([hit accessibilityActivate]) { YBLog(@"[点按] accessibilityActivate 成功"); return YES; }
-    YBLog(@"[点按] (%.0f,%.0f) 命中 %@ 但无法触发", pt.x, pt.y, NSStringFromClass(hit.class));
+    if ([self activateView:hit]) return YES;
+    YBLog(@"[点按] (%.0f,%.0f) 命中 %@ 但触发不了", pt.x, pt.y, NSStringFromClass(hit.class));
     return NO;
 }
 
@@ -181,10 +179,16 @@ static BOOL YBFireGestures(UIView *v) {
 + (BOOL)tapText:(NSArray<NSString *> *)keys {
     UIView *v = [self findViewWithText:keys];
     if (!v) { YBLog(@"[点按] 未找到文字 %@", keys); return NO; }
+    // 先在命中的视图上直接触发（不走坐标，最安全）
+    if ([self activateView:v]) {
+        YBLog(@"[点按] 文字命中 %@ -> 已触发 (%@)", keys, NSStringFromClass(v.class));
+        return YES;
+    }
+    // 直接触发不了，再退到坐标点按
     UIWindow *win = [self keyWindow];
     CGRect r = [v convertRect:v.bounds toView:win];
     CGPoint c = CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r));
-    YBLog(@"[点按] 文字命中 %@ -> %@ (%.0f,%.0f)", keys, NSStringFromClass(v.class), c.x, c.y);
+    YBLog(@"[点按] 文字命中 %@ -> %@ (%.0f,%.0f) 改走坐标", keys, NSStringFromClass(v.class), c.x, c.y);
     return [self tapPoint:c];
 }
 
