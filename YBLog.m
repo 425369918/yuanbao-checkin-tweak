@@ -88,10 +88,35 @@ void YBLogSync(NSString *fmt, ...) {
 }
 
 // ---- 进度标记：崩溃时把"最后进行到哪一步"一并写进日志 ----
+// 同时存进 NSUserDefaults：万一崩在写日志之前，下一次启动面板标题也能看到上次进行到哪
 void YBSetTrace(const char *step) {
     if (!step) return;
     strncpy(gTrace, step, sizeof(gTrace) - 1);
     gTrace[sizeof(gTrace) - 1] = '\0';
+    @try {
+        NSString *s = [NSString stringWithUTF8String:step];
+        if (s.length) [[NSUserDefaults standardUserDefaults] setObject:s forKey:@"yb.lastStep"];
+    } @catch (NSException *e) { }
+}
+
+NSString *YBLastTrace(void) {
+    NSString *s = nil;
+    @try { s = [[NSUserDefaults standardUserDefaults] stringForKey:@"yb.lastStep"]; } @catch (NSException *e) { }
+    return s.length ? s : @"(无)";
+}
+
+// 启动时先把"上一次进程最后进行到哪"存下来，本进程会不停覆盖 yb.lastStep
+void YBMarkBootTrace(void) {
+    @try {
+        NSString *prev = [[NSUserDefaults standardUserDefaults] stringForKey:@"yb.lastStep"];
+        if (prev.length) [[NSUserDefaults standardUserDefaults] setObject:prev forKey:@"yb.prevStep"];
+    } @catch (NSException *e) { }
+}
+
+NSString *YBPrevTrace(void) {
+    NSString *s = nil;
+    @try { s = [[NSUserDefaults standardUserDefaults] stringForKey:@"yb.prevStep"]; } @catch (NSException *e) { }
+    return s.length ? s : @"(无)";
 }
 
 // 信号处理里只能用 open/write/close 这类 async-signal-safe 调用

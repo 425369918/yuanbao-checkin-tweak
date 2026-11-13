@@ -45,48 +45,52 @@ static BOOL YBIsOwnOverlay(UIWindow *w) {
 
 // 拿 App 自己的窗口：key window 常常不可靠（我们自己的浮窗、键盘窗、弹窗各占一个 level），
 // 所以按"可见 + 不是自己的 + 层级最低 + 面积最大"来挑。
+// 注意：这里不再调已废弃的 UIApplication.windows —— 它在个别系统版本上会直接抛断言。
 + (UIWindow *)keyWindow {
     NSMutableArray<UIWindow *> *cand = [NSMutableArray array];
+
+    // 1) 所有 UIWindowScene 上的窗口
     @try {
         for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
             if (![sc isKindOfClass:UIWindowScene.class]) continue;
-            for (UIWindow *w in ((UIWindowScene *)sc).windows) if (w) [cand addObject:w];
+            NSArray *ws = ((UIWindowScene *)sc).windows;
+            if ([ws isKindOfClass:NSArray.class]) for (UIWindow *w in ws) if (w) [cand addObject:w];
         }
     } @catch (NSException *e) { YBLog(@"[窗口] 枚举 scene 异常: %@", e.reason); }
-    // 老 API 兜底（iOS 16 上仍能用）
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    for (UIWindow *w in UIApplication.sharedApplication.windows) if (w) [cand addObject:w];
-#pragma clang diagnostic pop
+
+    // 2) 我们自己浮窗所在的 scene（保险，防 connectedScenes 里没列出来）
+    @try {
+        if (!gOwnWindows) gOwnWindows = [NSHashTable weakObjectsHashTable];
+        for (UIWindow *o in gOwnWindows) {
+            if (o.windowScene) for (UIWindow *w in o.windowScene.windows) if (w) [cand addObject:w];
+        }
+    } @catch (NSException *e) { }
+
+    // 3) App 的 delegate.window
+    @try {
+        id dg = UIApplication.sharedApplication.delegate;
+        if ([dg respondsToSelector:@selector(window)]) {
+            UIWindow *w = [(id)dg window];
+            if (w) [cand addObject:w];
+        }
+    } @catch (NSException *e) { }
 
     UIWindow *best = nil;
     CGFloat bestArea = 0;
     NSInteger bestLevel = 999999;
     for (UIWindow *w in cand) {
-        if (YBIsOwnOverlay(w)) continue;
-        if (w.hidden || w.alpha < 0.01) continue;
-        if (w.windowLevel > 10) continue;                 // 键盘/系统窗跳过
-        if (w.bounds.size.width < 1 || w.bounds.size.height < 1) continue;
-        CGFloat area = w.bounds.size.width * w.bounds.size.height;
-        // 面积大优先；同面积取层级低的
-        if (area > bestArea || (area == bestArea && w.windowLevel < bestLevel)) {
-            best = w; bestArea = area; bestLevel = (NSInteger)w.windowLevel;
-        }
+        @try {
+            if (YBIsOwnOverlay(w)) continue;
+            if (w.hidden || w.alpha < 0.01) continue;
+            if (w.windowLevel > 10) continue;                 // 键盘/系统窗跳过
+            if (w.bounds.size.width < 1 || w.bounds.size.height < 1) continue;
+            CGFloat area = w.bounds.size.width * w.bounds.size.height;
+            if (area > bestArea || (area == bestArea && w.windowLevel < bestLevel)) {
+                best = w; bestArea = area; bestLevel = (NSInteger)w.windowLevel;
+            }
+        } @catch (NSException *e) { }
     }
-    if (best) return best;
-
-    // 最后一层：App 的 delegate.window
-    @try {
-        id dg = UIApplication.sharedApplication.delegate;
-        if ([dg respondsToSelector:@selector(window)]) {
-            UIWindow *w = [(id)dg window];
-            if (w && !YBIsOwnOverlay(w) && !w.hidden) return w;
-        }
-    } @catch (NSException *e) { }
-
-    UIWindow *app = UIApplication.sharedApplication.keyWindow;
-    if (app && !YBIsOwnOverlay(app)) return app;
-    return nil;
+    return best;
 }
 
 // 一次性诊断：把 App 的 UI 框架、窗口、根控制器、根视图子类打出来

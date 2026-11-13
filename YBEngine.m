@@ -240,39 +240,74 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
     });
 }
 
-- (void)selfTest {
-    if (self.running) { YBLogSync(@"[自检] 已有任务在跑"); return; }
+// 最小自检 A：只截图，不碰 OCR、不碰视图树
+- (void)testCapture {
+    if (self.running) { YBLogSync(@"[自检A] 已有任务在跑"); return; }
     dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检A 开始（只截图） =====");
+        YBSetTrace("A:1 调用截图");
+        __block YBScreen *sc = nil;
+        [self onMainVoid:^{ sc = [YBScreen capture]; }];
+        YBLogSync(@"[自检A] 截图结果=%@ 尺寸=%.0fx%.0f", sc.image ? @"有图" : @"没有图",
+                  sc.image.size.width, sc.image.size.height);
+        YBSetTrace("A:done");
+        YBLogSync(@"===== 自检A 结束 =====");
+    });
+}
+
+// 自检 B：截图 + OCR
+- (void)testOCR {
+    if (self.running) { YBLogSync(@"[自检B] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检B 开始（截图 + OCR） =====");
+        YBSetTrace("B:1 截图");
+        __block YBScreen *sc = nil;
+        [self onMainVoid:^{ sc = [YBScreen capture]; }];
+        if (!sc.image) { YBLogSync(@"[自检B] 没有图，停止"); YBLogSync(@"===== 自检B 结束 ====="); return; }
+        YBSetTrace("B:2 OCR");
+        [sc runOCR];
+        NSMutableArray *seen = [NSMutableArray array];
+        for (NSDictionary *d in [sc lineDicts]) { if (seen.count >= 25) break; [seen addObject:d[@"text"]]; }
+        YBLogSync(@"[自检B] 认出 %lu 行: %@", (unsigned long)[sc lineDicts].count,
+                  seen.count ? [seen componentsJoinedByString:@" / "] : @"(0 行，画面可能是空白)");
+        YBSetTrace("B:done");
+        YBLogSync(@"===== 自检B 结束 =====");
+    });
+}
+
+// 自检 C：截图 + OCR + 找福利中心 + 点一下
+- (void)selfTest {
+    if (self.running) { YBLogSync(@"[自检C] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBLogSync(@"===== 自检C 开始（截图 + OCR + 点福利中心） =====");
         YBSetTrace("selftest:1 诊断");
-        YBLogSync(@"===== 自检开始 =====");
         [self onMainVoid:^{ [YBTouch logDiagnostics]; }];
 
         YBSetTrace("selftest:2 截图");
         __block YBScreen *sc = nil;
         [self onMainVoid:^{ sc = [YBScreen capture]; }];
-        YBLogSync(@"[自检] 截图完成=%@", sc.image ? @"是" : @"否（这一步就是崩溃点）");
+        YBLogSync(@"[自检C] 截图=%@", sc.image ? @"有图" : @"没有图");
+        if (!sc.image) { YBLogSync(@"===== 自检C 结束 ====="); return; }
 
         YBSetTrace("selftest:3 OCR");
         [sc runOCR];
         NSMutableArray *seen = [NSMutableArray array];
-        for (NSDictionary *d in [sc lineDicts]) {
-            if (seen.count >= 25) break;
-            [seen addObject:d[@"text"]];
-        }
-        YBLogSync(@"[自检] OCR 识别 %lu 行: %@", (unsigned long)[sc lineDicts].count,
-                  seen.count ? [seen componentsJoinedByString:@" / "] : @"(0 行，截图可能是空白)");
+        for (NSDictionary *d in [sc lineDicts]) { if (seen.count >= 25) break; [seen addObject:d[@"text"]]; }
+        YBLogSync(@"[自检C] OCR %lu 行: %@", (unsigned long)[sc lineDicts].count,
+                  seen.count ? [seen componentsJoinedByString:@" / "] : @"(0 行)");
 
         YBSetTrace("selftest:4 找福利中心");
         CGPoint p = [sc centerOfTextContaining:@[@"福利中心", @"福利", @"签到"]];
         if (CGPointEqualToPoint(p, CGPointZero)) {
-            YBLogSync(@"[自检] 没找到福利中心/签到，先看上面 OCR 认出了哪些字");
+            YBLogSync(@"[自检C] 没找到福利中心/签到，先看上面 OCR 认出了哪些字");
         } else {
             YBSetTrace("selftest:5 点按");
             BOOL ok = [self onMain:^BOOL{ return [YBTouch tapPoint:p]; }];
-            YBLogSync(@"[自检] 点按 (%.0f,%.0f) 结果=%@", p.x, p.y, ok ? @"成功" : @"没触发");
+            YBLogSync(@"[自检C] 点按 (%.0f,%.0f) 结果=%@", p.x, p.y, ok ? @"成功" : @"没触发");
             [NSThread sleepForTimeInterval:1.2];
         }
-        YBLogSync(@"===== 自检结束 =====");
+        YBSetTrace("selftest:done");
+        YBLogSync(@"===== 自检C 结束 =====");
     });
 }
 

@@ -24,5 +24,7 @@ extern NSString *const YBEngineRunStateChanged; // userInfo["running"] = @(BOOL)
 // 自检：只做"截图 -> OCR -> 找福利中心 -> 点一下 -> 回读屏幕文字"这一条最小链路，
 // 用来把"点执行就闪"拆开定位：这一步崩就是截图/OCR 的问题，不崩就是任务流程的问题。
 - (void)selfTest;
+- (void)testCapture;   // 只截图
+- (void)testOCR;       // 截图 + OCR
 @end
 NS_ASSUME_NONNULL_END

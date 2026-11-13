@@ -214,7 +214,7 @@ static NSString *YBExtractText(UIView *v) {
         return;
     }
     CGFloat w = MIN(MAX(win.bounds.size.width - 40, 240), 340);
-    CGFloat h = 302;
+    CGFloat h = 330;
     CGRect f = CGRectMake((win.bounds.size.width - w) / 2, (win.bounds.size.height - h) / 2, w, h);
 
     UIView *p = [[UIView alloc] initWithFrame:f];
@@ -225,30 +225,40 @@ static NSString *YBExtractText(UIView *v) {
     [win addSubview:p];
     YBLogSync(@"[面板] 1 容器 OK (%.0fx%.0f)", w, h);
 
-    UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(14, 12, w - 28, 22)];
-    t.text = @"元宝签到（手动模式）";
+    UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(14, 10, w - 28, 20)];
+    t.text = [NSString stringWithFormat:@"元宝签到 · 上次停: %@", YBPrevTrace()];
     t.textColor = UIColor.whiteColor;
-    t.font = [UIFont boldSystemFontOfSize:16];
+    t.font = [UIFont boldSystemFontOfSize:13];
+    t.adjustsFontSizeToFitWidth = YES;
+    t.minimumScaleFactor = 0.6;
     [p addSubview:t];
     YBLogSync(@"[面板] 2 标题 OK");
 
     UIButton *go = [self mkButton:@"▶ 执行全部任务" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
-    go.frame = CGRectMake(14, 42, w - 28, 36);
+    go.frame = CGRectMake(14, 36, w - 28, 34);
     [p addSubview:go];
     YBLogSync(@"[面板] 3 执行按钮 OK");
 
-    // 自检按钮：只跑"截图→OCR→找福利中心→点一下"，用来把崩溃拆开定位
-    UIButton *st = [self mkButton:@"① 自检：只点一下福利中心" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(selfTest)];
-    st.frame = CGRectMake(14, 84, w - 28, 30);
-    [p addSubview:st];
-    YBLogSync(@"[面板] 4 自检按钮 OK");
+    // 自检拆成三段：哪一段崩，就把问题锁死在哪一段
+    UIButton *stA = [self mkButton:@"A 只截图" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(testCapture)];
+    stA.frame = CGRectMake(14, 74, (w - 34) / 2, 28);
+    [p addSubview:stA];
+
+    UIButton *stB = [self mkButton:@"B 截图+OCR" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(testOCR)];
+    stB.frame = CGRectMake(14 + (w - 34) / 2 + 6, 74, (w - 34) / 2, 28);
+    [p addSubview:stB];
+    YBLogSync(@"[面板] 4 自检 A/B OK");
+
+    UIButton *stC = [self mkButton:@"C 截图+OCR+点福利中心" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(selfTest)];
+    stC.frame = CGRectMake(14, 106, w - 28, 28);
+    [p addSubview:stC];
 
     UIButton *cl = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
-    cl.frame = CGRectMake(14, 120, w - 28, 28);
+    cl.frame = CGRectMake(14, 138, w - 28, 26);
     [p addSubview:cl];
-    YBLogSync(@"[面板] 5 关闭按钮 OK");
+    YBLogSync(@"[面板] 5 按钮全部 OK");
 
-    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 154, w - 28, 120)];
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 168, w - 28, 116)];
     lg.numberOfLines = 18;
     lg.font = [UIFont systemFontOfSize:7.5];
     lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
@@ -306,6 +316,8 @@ static NSString *YBExtractText(UIView *v) {
 - (void)runAll { [[YBEngine shared] runTasks:@[@"all"] count:-1 auto:YES]; }
 
 - (void)selfTest { [[YBEngine shared] selfTest]; }
+- (void)testCapture { [[YBEngine shared] testCapture]; }
+- (void)testOCR { [[YBEngine shared] testOCR]; }
 
 - (void)stopRun { [[YBEngine shared] stop]; }
 

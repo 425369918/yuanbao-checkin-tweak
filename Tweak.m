@@ -59,9 +59,13 @@ static void YBStartAfterLaunch(void) {
 
         // 上次没跑完（崩了 / 被系统杀了）→ 直接把崩溃前的日志摊开，不用你自己去翻文件
         if (gCrashReplay.count) {
-            YBLogSync(@"[崩溃回放] 上次运行没有正常结束，已自动打开面板显示崩溃前日志");
+            YBLogSync(@"[崩溃回放] 上次运行没有正常结束（上次进行到: %@），已自动打开面板", YBPrevTrace());
             [YBUI showCrashReplay:gCrashReplay];
             gCrashReplay = nil;
+        } else {
+            // 没崩也把面板摊出来：这样"上次进行到哪一步"和日志尾巴一进 App 就能看到
+            YBLogSync(@"[面板] 已自动打开；上次进程最后进行到: %@", YBPrevTrace());
+            [YBUI showPanel];
         }
     });
 }
@@ -70,6 +74,7 @@ __attribute__((constructor))
 static void YBTweakInit(void) {
     @autoreleasepool {
         YBLogBootstrap();
+        YBMarkBootTrace();           // 先记下"上一次进程最后进行到哪一步"
         // 关键：在读本进程的 "[启动]" 之前先判断上一次进程有没有跑完，
         // 否则 slice 会切到本进程头上，什么都判断不出来。
         if (YBLastRunUnfinished()) {
