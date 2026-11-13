@@ -5,24 +5,66 @@
 
 @implementation YBScreen
 
+static UIImage *YBScaleDown(UIImage *img, CGFloat maxLong) {
+    if (!img) return nil;
+    CGFloat w = img.size.width, h = img.size.height;
+    CGFloat longest = MAX(w, h);
+    if (longest <= maxLong || longest <= 0) return img;
+    CGFloat k = maxLong / longest;
+    CGSize target = CGSizeMake(w * k, h * k);
+    UIGraphicsBeginImageContextWithOptions(target, NO, 1.0);
+    [img drawInRect:CGRectMake(0, 0, target.width, target.height)];
+    UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return out ?: img;
+}
+
 + (instancetype)capture {
     YBScreen *s = [YBScreen new];
     // 窗口统一交给 YBTouch 挑：自己的浮窗、键盘窗都会被排除
     UIWindow *root = [YBTouch keyWindow];
-    if (!root) { YBLog(@"[截图] 拿不到 App 窗口"); return s; }
+    if (!root) { YBLogSync(@"[截图] 拿不到 App 窗口"); return s; }
     if (root.bounds.size.width < 1 || root.bounds.size.height < 1) {
-        YBLog(@"[截图] 窗口尺寸为 0，跳过");
+        YBLogSync(@"[截图] 窗口尺寸为 0，跳过");
         return s;
     }
-    YBLog(@"[截图] 用窗口 %@ %.0fx%.0f", NSStringFromClass(root.class),
-          root.bounds.size.width, root.bounds.size.height);
+    YBSetTrace("capture:1 截图开始");
+    YBLogSync(@"[截图] 窗口 %@ %.0fx%.0f", NSStringFromClass(root.class),
+              root.bounds.size.width, root.bounds.size.height);
 
-    UIGraphicsBeginImageContextWithOptions(root.bounds.size, NO, 0);
-    [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:YES];
-    s.image = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
+    UIImage *img = nil;
+    // afterScreenUpdates 必须用 NO：
+    // 传 YES 会强制同步做一遍渲染/提交，注入进程里很容易和 App 自己的渲染事务打架，
+    // 表现就是"点执行的瞬间直接闪退"。
+    @try {
+        UIGraphicsBeginImageContextWithOptions(root.bounds.size, NO, 0);
+        [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:NO];
+        img = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+    } @catch (NSException *e) {
+        YBLogSync(@"[截图] drawViewHierarchy 异常: %@", e.reason);
+    }
+    if (!img) {
+        // 兜底：直接渲染 layer（拿不到 Metal 内容，但不会崩）
+        @try {
+            UIGraphicsBeginImageContextWithOptions(root.bounds.size, NO, 0);
+            [root.layer renderInContext:UIGraphicsGetCurrentContext()];
+            img = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+        } @catch (NSException *e) {
+            YBLogSync(@"[截图] renderInContext 异常: %@", e.reason);
+        }
+    }
+    if (!img) { YBLogSync(@"[截图] 失败，拿不到画面"); return s; }
+
+    // 全屏 3x 图直接丢给 Vision 又慢又吃内存（容易触发系统因内存压力杀进程），先缩到长边 1280
+    UIImage *small = YBScaleDown(img, 1280);
+    s.image = small;
     s.pointSize = root.bounds.size;
-    s.scale = s.image.scale > 0 ? s.image.scale : UIScreen.mainScreen.scale;
+    s.scale = (root.bounds.size.width > 1) ? (small.size.width / root.bounds.size.width) : 1.0;
+    YBLogSync(@"[截图] 完成 %.0fx%.0f -> OCR 输入 %.0fx%.0f (scale %.2f)",
+              img.size.width, img.size.height, small.size.width, small.size.height, s.scale);
+    YBSetTrace("capture:done");
     return s;
 }
 

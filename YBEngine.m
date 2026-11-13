@@ -61,6 +61,9 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
 
 - (void)runTasks:(NSArray<NSString *> *)tasks count:(NSInteger)count auto:(BOOL)autoFill {
     if (self.running) { YBLog(@"[跳过] 已有任务在跑"); return; }
+    YBSetTrace("run:tap");
+    // 这一行在主线程（按钮回调里）同步落盘：万一后面瞬间崩，也能证明"按钮确实被点到了"
+    YBLogSync(@"[运行] 收到执行请求 %@", tasks);
     [self setRunning:YES];
     self.stopRequested = NO;
     [self beginBG];
@@ -234,6 +237,42 @@ NSString *const YBEngineRunStateChanged = @"YBEngineRunStateChanged";
         YBLog(@"[定时] 触发每日任务");
         [self runTasks:@[@"all"] count:-1 auto:YES];
         [self scheduleDailyTimer];
+    });
+}
+
+- (void)selfTest {
+    if (self.running) { YBLogSync(@"[自检] 已有任务在跑"); return; }
+    dispatch_async(self.workQ, ^{
+        YBSetTrace("selftest:1 诊断");
+        YBLogSync(@"===== 自检开始 =====");
+        [self onMainVoid:^{ [YBTouch logDiagnostics]; }];
+
+        YBSetTrace("selftest:2 截图");
+        __block YBScreen *sc = nil;
+        [self onMainVoid:^{ sc = [YBScreen capture]; }];
+        YBLogSync(@"[自检] 截图完成=%@", sc.image ? @"是" : @"否（这一步就是崩溃点）");
+
+        YBSetTrace("selftest:3 OCR");
+        [sc runOCR];
+        NSMutableArray *seen = [NSMutableArray array];
+        for (NSDictionary *d in [sc lineDicts]) {
+            if (seen.count >= 25) break;
+            [seen addObject:d[@"text"]];
+        }
+        YBLogSync(@"[自检] OCR 识别 %lu 行: %@", (unsigned long)[sc lineDicts].count,
+                  seen.count ? [seen componentsJoinedByString:@" / "] : @"(0 行，截图可能是空白)");
+
+        YBSetTrace("selftest:4 找福利中心");
+        CGPoint p = [sc centerOfTextContaining:@[@"福利中心", @"福利", @"签到"]];
+        if (CGPointEqualToPoint(p, CGPointZero)) {
+            YBLogSync(@"[自检] 没找到福利中心/签到，先看上面 OCR 认出了哪些字");
+        } else {
+            YBSetTrace("selftest:5 点按");
+            BOOL ok = [self onMain:^BOOL{ return [YBTouch tapPoint:p]; }];
+            YBLogSync(@"[自检] 点按 (%.0f,%.0f) 结果=%@", p.x, p.y, ok ? @"成功" : @"没触发");
+            [NSThread sleepForTimeInterval:1.2];
+        }
+        YBLogSync(@"===== 自检结束 =====");
     });
 }
 

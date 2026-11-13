@@ -207,7 +207,7 @@ static NSString *YBExtractText(UIView *v) {
         return;
     }
     CGFloat w = MIN(MAX(win.bounds.size.width - 40, 240), 340);
-    CGFloat h = 268;
+    CGFloat h = 302;
     CGRect f = CGRectMake((win.bounds.size.width - w) / 2, (win.bounds.size.height - h) / 2, w, h);
 
     UIView *p = [[UIView alloc] initWithFrame:f];
@@ -226,18 +226,24 @@ static NSString *YBExtractText(UIView *v) {
     YBLogSync(@"[面板] 2 标题 OK");
 
     UIButton *go = [self mkButton:@"▶ 执行全部任务" color:[UIColor colorWithRed:0.13 green:0.60 blue:0.35 alpha:1] action:@selector(runAll)];
-    go.frame = CGRectMake(14, 42, w - 28, 38);
+    go.frame = CGRectMake(14, 42, w - 28, 36);
     [p addSubview:go];
     YBLogSync(@"[面板] 3 执行按钮 OK");
 
-    UIButton *cl = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
-    cl.frame = CGRectMake(14, 88, w - 28, 30);
-    [p addSubview:cl];
-    YBLogSync(@"[面板] 4 关闭按钮 OK");
+    // 自检按钮：只跑"截图→OCR→找福利中心→点一下"，用来把崩溃拆开定位
+    UIButton *st = [self mkButton:@"① 自检：只点一下福利中心" color:[UIColor colorWithRed:0.16 green:0.42 blue:0.78 alpha:1] action:@selector(selfTest)];
+    st.frame = CGRectMake(14, 84, w - 28, 30);
+    [p addSubview:st];
+    YBLogSync(@"[面板] 4 自检按钮 OK");
 
-    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 126, w - 28, 130)];
-    lg.numberOfLines = 16;
-    lg.font = [UIFont systemFontOfSize:8];
+    UIButton *cl = [self mkButton:@"关闭" color:[UIColor colorWithWhite:0.30 alpha:1] action:@selector(togglePanel)];
+    cl.frame = CGRectMake(14, 120, w - 28, 28);
+    [p addSubview:cl];
+    YBLogSync(@"[面板] 5 关闭按钮 OK");
+
+    UILabel *lg = [[UILabel alloc] initWithFrame:CGRectMake(14, 154, w - 28, 120)];
+    lg.numberOfLines = 18;
+    lg.font = [UIFont systemFontOfSize:7.5];
     lg.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.6 alpha:1];
     lg.text = [self logText];
     [p addSubview:lg];
@@ -245,7 +251,7 @@ static NSString *YBExtractText(UIView *v) {
     [self startLogTimer];
 
     YBSetTrace("panel:done");
-    YBLogSync(@"[面板] 5 全部 OK（最小面板）");
+    YBLogSync(@"[面板] 6 全部 OK（最小面板）");
 }
 
 - (NSString *)logText {
@@ -284,6 +290,8 @@ static NSString *YBExtractText(UIView *v) {
 // ---- 交互 ----
 
 - (void)runAll { [[YBEngine shared] runTasks:@[@"all"] count:-1 auto:YES]; }
+
+- (void)selfTest { [[YBEngine shared] selfTest]; }
 
 - (void)stopRun { [[YBEngine shared] stop]; }
 

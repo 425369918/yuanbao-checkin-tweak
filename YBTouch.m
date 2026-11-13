@@ -94,14 +94,8 @@ static BOOL YBIsOwnOverlay(UIWindow *w) {
     for (NSUInteger i = 0; i < n; i++) [cls addObject:NSStringFromClass([rv.subviews[i] class])];
     YBLog(@"[诊断] 根视图 %@ 子视图(%lu): %@", NSStringFromClass(rv.class),
           (unsigned long)rv.subviews.count, [cls componentsJoinedByString:@", "]);
-    NSArray<NSString *> *texts = [self dumpVisibleTexts];
-    NSMutableArray *pick = [NSMutableArray array];
-    for (NSString *t in texts) {
-        if (pick.count >= 30) break;
-        [pick addObject:t];
-    }
-    YBLog(@"[诊断] 视图树可见文字 %lu 条: %@", (unsigned long)texts.count,
-          [pick componentsJoinedByString:@" / "]);
+    YBLog(@"[诊断] 视图树可见文字 %lu 条（详情见每次点按的日志）",
+          (unsigned long)[self dumpVisibleTexts].count);
 }
 
 // 视图“自己身上的文字”
