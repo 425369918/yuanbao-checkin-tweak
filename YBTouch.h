@@ -14,5 +14,6 @@ NS_ASSUME_NONNULL_BEGIN
 + (id)findViewWithText:(NSArray<NSString *> *)keys; // 返回命中视图（调试）
 + (NSArray<NSString *> *)dumpVisibleTexts;          // 当前屏幕可见文字（调试/录制）
 + (void)diagnoseText:(NSArray<NSString *> *)keys;   // 打印按文字找控件的每个候选（排查"点了没反应"）
++ (NSString *)textSignature;                        // 当前界面文字指纹（判断点击后界面变没变）
 @end
 NS_ASSUME_NONNULL_END

@@ -374,6 +374,11 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
         }
         YBLog(@"[点按] %@ 界面没变化，换下一个候选", keys);
     }
+    // 候选都触发不了 → 再走"无障碍元素"通道（SwiftUI 按钮的 action 挂在无障碍元素上）
+    if ([self tapAccessibilityElement:keys in:[self keyWindow]]) {
+        YBLog(@"[点按] %@ 经无障碍元素触发成功", keys);
+        return YES;
+    }
     // 都不行，最后退到坐标点按（用第一个候选的中心）
     NSDictionary *d0 = sorted.firstObject;
     CGRect r0 = [d0[@"rect"] CGRectValue];
@@ -398,6 +403,12 @@ static BOOL YBTextMatches(NSString *txt, NSArray<NSString *> *keys) {
               (long)i, NSStringFromClass(v.class), r.origin.x, r.origin.y, r.size.width, r.size.height,
               [d[@"ratio"] doubleValue], [d[@"hit"] boolValue] ? @"是" : @"否",
               NSStringFromClass(v.superview.class));
+        @try {
+            YBLog(@"[F] #%ld traits=%lu 可激活=%@ 文字=\"%@\"", (long)i,
+                  (unsigned long)[v accessibilityTraits],
+                  [v respondsToSelector:@selector(accessibilityActivate)] ? @"是" : @"否",
+                  YBViewText(v));
+        } @catch (NSException *e) { YBLog(@"[F] #%ld 读无障碍属性异常: %@", (long)i, e.reason); }
     }
 }
 
